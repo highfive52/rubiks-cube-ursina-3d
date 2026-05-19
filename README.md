@@ -1,22 +1,42 @@
-
 # Rubik's Cube Ursina App
 
 ## How to Run
 
 1. Install dependencies (in your virtual environment):
   ```sh
-  uv pip install -r requirements.txt
-  # or, if using pyproject.toml:
   uv pip install .
   ```
 2. Run the app:
   ```sh
   uv run rubiks-cube
-  # or
-  uv run src/rubiks_cube/main.py
-  # or
-  python src/rubiks_cube/main.py
   ```
+## Controls
+
+  - **Rotate a side with the mouse:**
+    - **Left-click** on a face of the cube to rotate that side clockwise.
+    - **Right-click** on a face of the cube to rotate that side counterclockwise.
+
+  - **Rotate a side with the keyboard:**
+    - **W/A/S/D/E** keys rotate the cube relative to the camera:
+      - **D**: Rotate the right face (relative to your current camera view)
+      - **A**: Rotate the left face
+      - **W**: Rotate the top face
+      - **S**: Rotate the bottom face
+      - **E**: Rotate the face you are looking at (front)
+    - **Hold Shift** while pressing a key to rotate that face in the opposite direction (counterclockwise).
+    - **Moves are queued:** If you press keys rapidly, each move will be performed in order, one at a time, after the previous move animation completes. This prevents overlapping moves and keeps the cube in a valid state.
+
+  - **Toggle Debug Overlays:**
+    - Press **1** to show/hide the camera-facing debug text overlay (which face you're looking at and its vector).
+    - Press **2** to show/hide the FPS counter.
+    - Press **3** to show/hide the entities counter.
+    - Press **4** to show/hide the colliders counter.
+
+  - **Randomize:**
+    - Click the `randomize` button in the lower right to scramble the cube.
+
+  - **Camera:**
+    - Use your mouse to orbit, pan, and zoom the view (EditorCamera controls).
   
 ## Spacial Mapping
 
@@ -80,19 +100,8 @@ for face_vector in FACE_MAPPINGS.keys():
 - Instantiate and pass in the camera (or other objects to track) from anywhere, such as `main()`.
 - Ursina will handle calling `update()` on each tracker entity every frame.
 
-## Controls
-
-- **Rotate a side:**
-  - **Left-click** on a face of the cube to rotate that side clockwise.
-  - **Right-click** on a face of the cube to rotate that side counterclockwise.
-- **Randomize:**
-  - Click the `randomize` button in the lower right to scramble the cube.
-- **Camera:**
-  - Use your mouse to orbit, pan, and zoom the view (EditorCamera controls).
-
 ## Notes
 - The app window must be focused for mouse controls to work.
-- You do not need Blender or .blend files unless you want to import custom 3D models.
 
 ## Code Quality: pre-commit Hooks
 
@@ -101,17 +110,8 @@ This project uses [pre-commit](https://pre-commit.com/) to automate code formatt
 ### Setup pre-commit
 1. Install pre-commit (if not already):
    ```sh
-   pip install pre-commit
-   ```
-2. Install the hooks:
-   ```sh
-   pre-commit install
-   ```
+  pip install pre-commit
 
-### Usage
-- Hooks will run automatically on `git commit`.
-- To run all hooks manually on all files:
-  ```sh
   pre-commit run --all-files
   ```
 

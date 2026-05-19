@@ -85,9 +85,11 @@ class CameraTracker(Entity):
             self.telemetry_text.color = face_info["color"]
 
     def input(self, key):
+
         base_key = key.lower()
 
-        if base_key not in ("w", "a", "s", "d", "e") or self.current_face is None:
+        valid_keys = {"w", "a", "s", "d", "e", "1", "2", "3", "4"}
+        if base_key not in valid_keys or self.current_face is None:
             return
 
         is_prime = held_keys["shift"] > 0
@@ -118,26 +120,36 @@ class CameraTracker(Entity):
                     1 if cam_up_raw.dot(face_vector) > 0 else -1
                 )
 
-        # --- Append Parameters to Queue Instead of Executing Instantly ---
-        if base_key == "d":
-            direction = -1 if is_prime else 1
-            self.add_move_to_queue(screen_right_axis, direction)
-
-        elif base_key == "a":
-            direction = -1 if is_prime else 1
-            self.add_move_to_queue(-screen_right_axis, direction)
-
-        elif base_key == "w":
-            direction = -1 if is_prime else 1
-            self.add_move_to_queue(screen_up_axis, direction)
-
-        elif base_key == "s":
-            direction = -1 if is_prime else 1
-            self.add_move_to_queue(-screen_up_axis, direction)
-
-        elif base_key == "e":
-            direction = -1 if is_prime else 1
-            self.add_move_to_queue(self.current_face, direction)
+        # --- Use match/case for debug toggles and moves ---
+        # --- For moves, append parameters to queue instead of executing instantly ---
+        match base_key:
+            case "1":
+                self.telemetry_text.enabled = not self.telemetry_text.enabled
+                return
+            case "2":
+                window.fps_counter.enabled = not window.fps_counter.enabled
+                return
+            case "3":
+                window.entity_counter.enabled = not window.entity_counter.enabled
+                return
+            case "4":
+                window.collider_counter.enabled = not window.collider_counter.enabled
+                return
+            case "d":
+                direction = -1 if is_prime else 1
+                self.add_move_to_queue(screen_right_axis, direction)
+            case "a":
+                direction = -1 if is_prime else 1
+                self.add_move_to_queue(-screen_right_axis, direction)
+            case "w":
+                direction = -1 if is_prime else 1
+                self.add_move_to_queue(screen_up_axis, direction)
+            case "s":
+                direction = -1 if is_prime else 1
+                self.add_move_to_queue(-screen_up_axis, direction)
+            case "e":
+                direction = -1 if is_prime else 1
+                self.add_move_to_queue(self.current_face, direction)
 
 
 def main():
