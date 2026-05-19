@@ -8,8 +8,10 @@
   # or, if using pyproject.toml:
   uv pip install .
   ```
-2. Run the app (for Ursina's global update() to work):
+2. Run the app:
   ```sh
+  uv run rubiks-cube
+  # or
   uv run src/rubiks_cube/main.py
   # or
   python src/rubiks_cube/main.py
