@@ -1,3 +1,4 @@
+from collections import deque
 from copy import copy
 import random
 from ursina import (
@@ -30,11 +31,16 @@ FACE_MAPPINGS = {
 
 class CameraTracker(Entity):
 
-    def __init__(self, camera_to_track, rotate_callback):
-        # super().__init__() tells Ursina to register this object into the game world
+    def __init__(self, camera_to_track, rotate_side_callback):
         super().__init__()
         self.cam = camera_to_track
-        self.rotate_callback = rotate_callback
+        self.rotate_side_callback = (
+            rotate_side_callback  # Reference to rotate_side in main()
+        )
+
+        # Internal Queue Tracking State
+        self.move_queue = deque()
+        self.is_animating = False
 
         # Track the active face vector dynamically
         self.current_face = None
@@ -46,9 +52,19 @@ class CameraTracker(Entity):
             scale=1.5,
         )
 
-    # Ursina automatically calls this method every single frame for every active Entity.
-    # It completely bypasses the __main__ scope issue.
+    def add_move_to_queue(self, normal, direction=1):
+        """Public method allowing mouse clicks or keys to push moves safely into the queue."""
+        self.move_queue.append((normal, direction))
+
     def update(self):
+        # --- 1. Process Animation Queue (FIFO) ---
+        if not self.is_animating and self.move_queue:
+            self.is_animating = True
+            normal, direction = self.move_queue.popleft()
+            # Pass 'self' so the rotation callback can clear our animation lock when finished
+            self.rotate_side_callback(normal, direction, tracker=self)
+
+        # --- 2. Track Face Perspective ---
         cam_forward = Vec3(self.cam.forward.x, self.cam.forward.y, self.cam.forward.z)
 
         best_match_vector = None
@@ -61,32 +77,26 @@ class CameraTracker(Entity):
                 best_match_vector = face_vector
 
         if best_match_vector:
-            # Store it so the global input function can read it!
             self.current_face = best_match_vector
-
             face_info = FACE_MAPPINGS[best_match_vector]
             self.telemetry_text.text = (
                 f"Facing: {face_info['name']}\nVector: {best_match_vector}"
             )
             self.telemetry_text.color = face_info["color"]
 
-    # Consolidated input method inside the class!
     def input(self, key):
-        # 1. Clean up key name parsing—since it sends raw lowercase keys, we just catch them directly
         base_key = key.lower()
 
         if base_key not in ("w", "a", "s", "d", "e") or self.current_face is None:
             return
 
-        # 2. Query Ursina's global key state dictionary directly for 'shift'
-        # This catches both left shift and right shift perfectly!
         is_prime = held_keys["shift"] > 0
 
-        # --- 1. Extract the Camera's True Screen Vectors ---
+        # --- Extract the Camera's True Screen Vectors ---
         cam_right_raw = self.cam.right
         cam_up_raw = self.cam.up
 
-        # --- 2. Align to Nearest Global Face Vector Axis ---
+        # --- Align to Nearest Global Face Vector Axis ---
         screen_right_axis = None
         screen_up_axis = None
         max_right_dot = -1.0
@@ -108,41 +118,26 @@ class CameraTracker(Entity):
                     1 if cam_up_raw.dot(face_vector) > 0 else -1
                 )
 
-        # --- 3. Execute Rotation Based on Screen Key Pressed ---
+        # --- Append Parameters to Queue Instead of Executing Instantly ---
         if base_key == "d":
             direction = -1 if is_prime else 1
-            print(
-                f"Rotating SCREEN RIGHT face. Key={key} Prime={is_prime} Axis: {screen_right_axis}"
-            )
-            self.rotate_callback(screen_right_axis, direction=direction)
+            self.add_move_to_queue(screen_right_axis, direction)
 
         elif base_key == "a":
             direction = -1 if is_prime else 1
-            print(
-                f"Rotating SCREEN LEFT face. Key={key} Prime={is_prime} Axis: {-screen_right_axis}"
-            )
-            self.rotate_callback(-screen_right_axis, direction=direction)
+            self.add_move_to_queue(-screen_right_axis, direction)
 
         elif base_key == "w":
             direction = -1 if is_prime else 1
-            print(
-                f"Rotating SCREEN TOP face. Key={key} Prime={is_prime} Axis: {screen_up_axis}"
-            )
-            self.rotate_callback(screen_up_axis, direction=direction)
+            self.add_move_to_queue(screen_up_axis, direction)
 
         elif base_key == "s":
             direction = -1 if is_prime else 1
-            print(
-                f"Rotating SCREEN BOTTOM face. Key={key} Prime={is_prime} Axis: {-screen_up_axis}"
-            )
-            self.rotate_callback(-screen_up_axis, direction=direction)
+            self.add_move_to_queue(-screen_up_axis, direction)
 
         elif base_key == "e":
             direction = -1 if is_prime else 1
-            print(
-                f"Rotating CURRENT FRONT face. Key={key} Prime={is_prime} Axis: {self.current_face}"
-            )
-            self.rotate_callback(self.current_face, direction=direction)
+            self.add_move_to_queue(self.current_face, direction)
 
 
 def main():
@@ -207,7 +202,7 @@ def main():
 
     rotation_helper = Entity()
 
-    def rotate_side(normal, direction=1, speed=1):
+    def rotate_side(normal, direction=1, speed=1, tracker=None):
         visual_degrees = 90 * direction
 
         # Correct rotation glitch for opposing perspective anchors
@@ -272,13 +267,20 @@ def main():
 
         invoke(reset_rotation_helper, delay=0.2 * speed)
 
-        if speed:
+        if speed and tracker:
             collider.ignore_input = True
 
             @after(0.25 * speed)
             def _():
                 collider.ignore_input = False
                 check_for_win()
+                # UNLOCK QUEUE: Move finished cleanly, reset animation state on tracker
+                tracker.is_animating = False
+
+        else:
+            # Immediate unlock for speed=0 instant randomizations
+            if tracker:
+                tracker.is_animating = False
 
     def reset_rotation_helper():
         [setattr(e, "world_parent", scene) for e in cubes]
@@ -322,7 +324,9 @@ def main():
     editor_camera.ignore_input = True
 
     # 3. Instantiate the tracker, passing the callback
-    tracker = CameraTracker(camera_to_track=editor_camera, rotate_callback=rotate_side)
+    tracker = CameraTracker(
+        camera_to_track=editor_camera, rotate_side_callback=rotate_side
+    )
 
     app.run()
 
