@@ -5,3 +5,16 @@ repos:
     hooks:
       - id: black
         language_version: python3.12.10
+
+# Run pytest on every commit
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: python
+        additional_dependencies: [pytest, ursina]
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+        verbose: true
