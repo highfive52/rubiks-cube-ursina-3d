@@ -1,22 +1,22 @@
+from copy import copy
+import random
 from ursina import (
-    Ursina,
+    Button,
+    EditorCamera,
     Entity,
+    Text,
+    Ursina,
     Vec3,
+    after,
     color,
     curve,
     invoke,
-    after,
-    scene,
-    Text,
-    Button,
-    window,
-    EditorCamera,
     mouse,
+    scene,
+    window,
 )
-from copy import copy
-import random
 
-# 1. Global face definitions mapping standard vectors to colors/names
+# 1. Keep your configuration dictionary out here
 FACE_MAPPINGS = {
     Vec3(1, 0, 0): {"name": "Right (Pink)", "color": color.pink},
     Vec3(-1, 0, 0): {"name": "Left (Orange)", "color": color.orange},
@@ -26,55 +26,44 @@ FACE_MAPPINGS = {
     Vec3(0, 0, -1): {"name": "Front (Green)", "color": color.green},
 }
 
-# 2. Empty global references that update() can read from
-cam = None
-telemetry_text = None
 
+class CameraTracker(Entity):
 
-def start():
-    print("Hello from the src/ folder application!")
+    def __init__(self, camera_to_track):
+        # super().__init__() tells Ursina to register this object into the game world
+        super().__init__()
+        self.cam = camera_to_track
 
-
-# =========================================================================
-# GLOBAL UPDATE FUNCTION
-# =========================================================================
-def update():
-    # Only run if our UI and camera references have been assigned inside main
-    if not telemetry_text or not cam:
-        return
-
-    # Use cam.forward to read the absolute viewing direction matrix.
-    # We copy it into a fresh Vec3 to isolate it from internal reference locks.
-    cam_forward = Vec3(cam.forward.x, cam.forward.y, cam.forward.z)
-
-    best_match_vector = None
-    highest_similarity = -1.0
-
-    # Compare where the camera is looking against the inverted face vectors.
-    # (Since cam.forward points inward toward the cube, we match against -face_vector)
-    for face_vector in FACE_MAPPINGS.keys():
-        similarity = cam_forward.dot(-face_vector)
-
-        if similarity > highest_similarity:
-            highest_similarity = similarity
-            best_match_vector = face_vector
-
-    # Dynamically update the UI element on screen
-    if best_match_vector:
-        face_info = FACE_MAPPINGS[best_match_vector]
-        telemetry_text.text = (
-            f"Facing: {face_info['name']}\nVector: {best_match_vector}"
+        # Build the text element directly inside this tracking object
+        self.telemetry_text = Text(
+            text="Aligning Telemetry...",
+            position=(-0.85, 0.45),
+            scale=1.5,
         )
-        telemetry_text.color = face_info["color"]
 
+    # Ursina automatically calls this method every single frame for every active Entity.
+    # It completely bypasses the __main__ scope issue.
+    def update(self):
+        cam_forward = Vec3(self.cam.forward.x, self.cam.forward.y, self.cam.forward.z)
 
-# =========================================================================
+        best_match_vector = None
+        highest_similarity = -1.0
+
+        for face_vector in FACE_MAPPINGS.keys():
+            similarity = cam_forward.dot(-face_vector)
+            if similarity > highest_similarity:
+                highest_similarity = similarity
+                best_match_vector = face_vector
+
+        if best_match_vector:
+            face_info = FACE_MAPPINGS[best_match_vector]
+            self.telemetry_text.text = (
+                f"Facing: {face_info['name']}\nVector: {best_match_vector}"
+            )
+            self.telemetry_text.color = face_info["color"]
 
 
 def main():
-
-    # Tell Python to bind these names to the global namespace variables
-    global cam, telemetry_text
 
     app = Ursina()
 
@@ -90,7 +79,6 @@ def main():
     # make a model with a separate color on each face
     combine_parent = Entity(enabled=False)
     for i, direction in enumerate((Vec3.right, Vec3.up, Vec3.forward)):
-
         e = Entity(
             parent=combine_parent,
             model="plane",
@@ -138,11 +126,17 @@ def main():
     rotation_helper = Entity()
 
     def rotate_side(normal, direction=1, speed=1):
+        visual_degrees = 90 * direction
+
+        # Correct rotation glitch for opposing perspective anchors
+        if normal in (Vec3(-1, 0, 0), Vec3(0, -1, 0), Vec3(0, 0, 1)):
+            visual_degrees = -visual_degrees
+
         if normal == Vec3(1, 0, 0):
             [setattr(e, "world_parent", rotation_helper) for e in cubes if e.x > 0]
             rotation_helper.animate(
                 "rotation_x",
-                90 * direction,
+                visual_degrees,
                 duration=0.15 * speed,
                 curve=curve.linear,
                 interrupt="finish",
@@ -151,17 +145,16 @@ def main():
             [setattr(e, "world_parent", rotation_helper) for e in cubes if e.x < 0]
             rotation_helper.animate(
                 "rotation_x",
-                -90 * direction,
+                visual_degrees,
                 duration=0.15 * speed,
                 curve=curve.linear,
                 interrupt="finish",
             )
-
         elif normal == Vec3(0, 1, 0):
             [setattr(e, "world_parent", rotation_helper) for e in cubes if e.y > 0]
             rotation_helper.animate(
                 "rotation_y",
-                90 * direction,
+                visual_degrees,
                 duration=0.15 * speed,
                 curve=curve.linear,
                 interrupt="finish",
@@ -170,17 +163,16 @@ def main():
             [setattr(e, "world_parent", rotation_helper) for e in cubes if e.y < 0]
             rotation_helper.animate(
                 "rotation_y",
-                -90 * direction,
+                visual_degrees,
                 duration=0.15 * speed,
                 curve=curve.linear,
                 interrupt="finish",
             )
-
         elif normal == Vec3(0, 0, 1):
             [setattr(e, "world_parent", rotation_helper) for e in cubes if e.z > 0]
             rotation_helper.animate(
                 "rotation_z",
-                -90 * direction,
+                visual_degrees,
                 duration=0.15 * speed,
                 curve=curve.linear,
                 interrupt="finish",
@@ -189,7 +181,7 @@ def main():
             [setattr(e, "world_parent", rotation_helper) for e in cubes if e.z < 0]
             rotation_helper.animate(
                 "rotation_z",
-                90 * direction,
+                visual_degrees,
                 duration=0.15 * speed,
                 curve=curve.linear,
                 interrupt="finish",
@@ -227,7 +219,7 @@ def main():
             Vec3(0, -1, 0),
             Vec3(0, 0, -1),
         )
-        for i in range(20):
+        for _ in range(20):
             rotate_side(
                 normal=random.choice(faces), direction=random.choice((-1, 1)), speed=0
             )
@@ -239,18 +231,15 @@ def main():
 
     window.color = color._16
 
-    # Instantiate our engine camera and text entities to populate the global handles
-    cam = EditorCamera()
-    telemetry_text = Text(
-        text="Aligning Telemetry...",
-        position=(-0.85, 0.45),
-        scale=1.5,
-    )
+    # Instantiate the camera
+    editor_camera = EditorCamera()
+
+    # Instantiate our new tracking class!
+    # We pass the camera into it, and Ursina handles the rest.
+    CameraTracker(camera_to_track=editor_camera)
 
     app.run()
 
 
 if __name__ == "__main__":
-    start()
     main()
-    print("Goodbye from the src/ folder application!")

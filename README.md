@@ -3,17 +3,27 @@
 ## How to Run
 
 1. Install dependencies (in your virtual environment):
-   ```sh
-   uv pip install -r requirements.txt
-   # or, if using pyproject.toml:
-   uv pip install .
-   ```
-2. Run the app:
-   ```sh
-   uv run rubiks-cube
-   # or
-   python -m src.rubiks_cube.main
-   ```
+  ```sh
+  uv pip install -r requirements.txt
+  # or, if using pyproject.toml:
+  uv pip install .
+  ```
+2. Run the app (for Ursina's global update() to work):
+  ```sh
+  uv run src/rubiks_cube/main.py
+  # or
+  python src/rubiks_cube/main.py
+  ```
+## Spacial Mapping
+
+|Face Name       |Notation    |Ursina Direction Vector   |Vector Notation  |
+|----------------|------------|--------------------------|-----------------|
+|Right           |r           |"Vec3(1, 0, 0)"           |Vec3.right       |
+|Left            |l           |"Vec3(-1, 0, 0)"          |Vec3.left        |
+|Top (Up)        |u           |"Vec3(0, 1, 0)"           |Vec3.up          |
+|Bottom (Down)   |d           |"Vec3(0, -1, 0)"          |Vec3.down        |
+|Back            |b           |"Vec3(0, 0, 1)"           |Vec3.forward     |
+|Front           |f           |"Vec3(0, 0, -1)"          |Vec3.back        |
 
 ## Controls
 
