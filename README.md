@@ -1,4 +1,31 @@
-# Rubik's Cube Ursina App
+#  Rubik's Cube Ursina App
+
+## Overview
+
+An interactive 3D Rubik’s Cube simulator built with Python and the Ursina game engine.
+
+Features include:
+- Relative camera-based cube controls
+- Animated face rotations
+- Input queueing for valid cube state management
+- Real-time camera telemetry/debug overlays
+- Mouse and keyboard interaction
+- PyInstaller and PyPI packaging support
+
+## Project Structure
+
+```text
+src/
+└── rubiks_cube/
+    └── main.py
+tests/
+    └── test_main.py
+pyproject.toml
+README.md
+```
+## License
+
+MIT License
 
 ## How to Run
 
@@ -6,6 +33,11 @@
   ```sh
   uv pip install .
   ```
+
+    If you don't have [uv](https://github.com/astral-sh/uv) installed, install it with:
+    ```sh
+    pip install uv
+    ```
 2. Run the app:
   ```sh
   uv run rubiks-cube
@@ -38,7 +70,7 @@
   - **Camera:**
     - Use your mouse to orbit, pan, and zoom the view (EditorCamera controls).
   
-## Spacial Mapping
+## Spatial Mapping
 
 |Face Name       |Notation    |Ursina Direction Vector   |Vector Notation  |
 |----------------|------------|--------------------------|-----------------|
@@ -49,7 +81,9 @@
 |Back            |b           |"Vec3(0, 0, 1)"           |Vec3.forward     |
 |Front           |f           |"Vec3(0, 0, -1)"          |Vec3.back        |
 
-## Camera Tracking System
+> Note: Ursina uses a coordinate system where negative Z faces "forward" toward the viewer.
+
+## Camera-Based Face Detection
 
 This app uses a custom `CameraTracker` class to display real-time camera orientation telemetry in the Ursina window. Here’s how it works:
 
@@ -63,7 +97,7 @@ This app uses a custom `CameraTracker` class to display real-time camera orienta
 
 - The `CameraTracker` class receives a reference to the camera (e.g., `EditorCamera`) when instantiated.
 - Every frame, in its `update()` method, it reads the camera's forward vector (the direction the camera is looking).
-- It compares this forward vector to the six face normals of the cube (using a dot product) to determine which face the camera is most directly looking at.
+- It compares the camera forward vector against the six cube face normals using a dot product to determine which face is currently most aligned with the camera view.
 - The tracker then updates an on-screen text element to display the name and vector of the currently faced side, and colors the text to match that face.
 
 #### Example (simplified):
@@ -111,8 +145,75 @@ This project uses [pre-commit](https://pre-commit.com/) to automate code formatt
 1. Install pre-commit (if not already):
    ```sh
   pip install pre-commit
-
   pre-commit run --all-files
   ```
 
+## Build
+
+### pyinstaller
+
+```
+pyinstaller --add-data=".venv/Lib/site-packages/panda3d/etc;panda3d/etc" \
+            --add-binary=".venv/Lib/site-packages/panda3d/libpandagl.dll;panda3d" \
+            --add-binary=".venv/Lib/site-packages/panda3d/libp3windisplay.dll;panda3d" \
+            --add-data=".venv/Lib/site-packages/ursina/models_compressed;ursina/models_compressed" \
+            --add-data=".venv/Lib/site-packages/ursina/fonts;ursina/fonts" \
+            --add-data=".venv/Lib/site-packages/ursina/textures;ursina/textures" \
+            --add-data="src/rubiks_cube;rubiks_cube" \
+            src/rubiks_cube/main.py
+```
+
+### PyPi
+
+```powershell
+pip install --upgrade build twine
+```
+
+```powershell
+python -m build
+```
+
+Upload to the official PyPI repository:
+
+```
+python -m twine upload dist/*
+```
+
+#### Local Whl Test
+
+1. Create the virtual environment folder named .venv
+  ```sh
+  python -m venv .venv
+  ```
+2. Activate the environment in PowerShell
+  ```sh
+  .\.venv\Scripts\Activate.ps1
+  ```
+3. Install the wheel file directly:
+  ```sh
+  pip install rubiks_cube-0.1.0-py3-none-any.whl
+  ```
+
+  Or, if you want to force re-install an older version over itself:
+  ```sh
+  pip install --force-reinstall rubiks_cube-0.1.0-py3-none-any.whl
+  ```
+
 Enjoy solving the Rubik's Cube!
+
+## Testing
+
+This project uses `pytest` for testing. To run the tests:
+
+```sh
+pytest
+```
+
+Make sure your virtual environment is activated and dependencies are installed.
+
+## Roadmap
+
+- [ ] Move history and undo support
+- [ ] Solver integration
+- [ ] Scramble notation export
+- [ ] Additional cube sizes (4x4, 5x5)
