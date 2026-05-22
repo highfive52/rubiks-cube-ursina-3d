@@ -18,6 +18,19 @@ from ursina import (
     held_keys,
 )
 
+from .cube_model import CubeModel
+
+cube_model = CubeModel()
+
+
+def sync_model_from_entities(model, cube_entities):
+    for e in cube_entities:
+        model.cubes[(int(e.x), int(e.y), int(e.z))] = {
+            "pos": (e.x, e.y, e.z),
+            "rot": e.world_rotation,
+        }
+
+
 # =========================================================
 # CONFIGURATION
 # =========================================================
@@ -349,6 +362,8 @@ def main():
             if tracker:
                 tracker.is_animating = False
 
+        sync_model_from_entities(cube_model, cube_entities)
+
     def reset_rotation_helper():
         [setattr(e, "world_parent", scene) for e in cube_entities]
         rotation_helper.rotation = (0, 0, 0)
@@ -359,7 +374,7 @@ def main():
     # Future: should be model-based (CubeModel.is_solved())
     def check_for_win():
 
-        if {e.world_rotation for e in cube_entities} == {Vec3(0, 0, 0)}:
+        if cube_model.is_solved():
             win_text_entity.text = "SOLVED!"
             win_text_entity.appear()
         else:
