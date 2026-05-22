@@ -18,7 +18,9 @@ from ursina import (
     held_keys,
 )
 
-# 1. Keep your configuration dictionary out here
+# =========================================================
+# CONFIGURATION
+# =========================================================
 FACE_MAPPINGS = {
     Vec3(1, 0, 0): {"name": "Right (Pink)", "color": color.pink},
     Vec3(-1, 0, 0): {"name": "Left (Orange)", "color": color.orange},
@@ -29,6 +31,10 @@ FACE_MAPPINGS = {
 }
 
 
+# =========================================================
+# INPUT / CAMERA LOGIC
+# =========================================================
+# NOTE: This will become InputController in Phase 4
 class CameraTracker(Entity):
 
     def __init__(self, camera_to_track, rotate_side_callback):
@@ -204,7 +210,7 @@ def main():
     combine_parent.combine()
 
     # place 3x3x3 cubes
-    cubes = []
+    cube_entities = []
     for x in range(3):
         for y in range(3):
             for z in range(3):
@@ -213,7 +219,7 @@ def main():
                     position=Vec3(x, y, z) - (Vec3(3, 3, 3) / 3),
                     texture="white_cube",
                 )
-                cubes.append(e)
+                cube_entities.append(e)
 
     # rotate a side when we click on it
     collider = Entity(model="cube", scale=3, collider="box", visible=False)
@@ -229,7 +235,17 @@ def main():
 
     rotation_helper = Entity()
 
+    # =========================================================
+    # CUBE MODEL + RENDERING (CURRENTLY COUPLED)
+    # =========================================================
     def rotate_side(normal, direction=1, speed=1, tracker=None):
+
+        # =====================================================
+        # RENDERING LAYER (URSINA ENTITIES ONLY)
+        # =====================================================
+
+        # Future: this becomes CubeModel.apply_move()
+
         visual_degrees = 90 * direction
 
         # Correct rotation glitch for opposing perspective anchors
@@ -238,7 +254,11 @@ def main():
 
         match (normal.x, normal.y, normal.z):
             case (1, 0, 0):
-                [setattr(e, "world_parent", rotation_helper) for e in cubes if e.x > 0]
+                [
+                    setattr(e, "world_parent", rotation_helper)
+                    for e in cube_entities
+                    if e.x > 0
+                ]
                 rotation_helper.animate(
                     "rotation_x",
                     visual_degrees,
@@ -247,7 +267,11 @@ def main():
                     interrupt="finish",
                 )
             case (-1, 0, 0):
-                [setattr(e, "world_parent", rotation_helper) for e in cubes if e.x < 0]
+                [
+                    setattr(e, "world_parent", rotation_helper)
+                    for e in cube_entities
+                    if e.x < 0
+                ]
                 rotation_helper.animate(
                     "rotation_x",
                     visual_degrees,
@@ -256,7 +280,11 @@ def main():
                     interrupt="finish",
                 )
             case (0, 1, 0):
-                [setattr(e, "world_parent", rotation_helper) for e in cubes if e.y > 0]
+                [
+                    setattr(e, "world_parent", rotation_helper)
+                    for e in cube_entities
+                    if e.y > 0
+                ]
                 rotation_helper.animate(
                     "rotation_y",
                     visual_degrees,
@@ -265,7 +293,11 @@ def main():
                     interrupt="finish",
                 )
             case (0, -1, 0):
-                [setattr(e, "world_parent", rotation_helper) for e in cubes if e.y < 0]
+                [
+                    setattr(e, "world_parent", rotation_helper)
+                    for e in cube_entities
+                    if e.y < 0
+                ]
                 rotation_helper.animate(
                     "rotation_y",
                     visual_degrees,
@@ -274,7 +306,11 @@ def main():
                     interrupt="finish",
                 )
             case (0, 0, 1):
-                [setattr(e, "world_parent", rotation_helper) for e in cubes if e.z > 0]
+                [
+                    setattr(e, "world_parent", rotation_helper)
+                    for e in cube_entities
+                    if e.z > 0
+                ]
                 rotation_helper.animate(
                     "rotation_z",
                     visual_degrees,
@@ -283,7 +319,11 @@ def main():
                     interrupt="finish",
                 )
             case (0, 0, -1):
-                [setattr(e, "world_parent", rotation_helper) for e in cubes if e.z < 0]
+                [
+                    setattr(e, "world_parent", rotation_helper)
+                    for e in cube_entities
+                    if e.z < 0
+                ]
                 rotation_helper.animate(
                     "rotation_z",
                     visual_degrees,
@@ -310,13 +350,16 @@ def main():
                 tracker.is_animating = False
 
     def reset_rotation_helper():
-        [setattr(e, "world_parent", scene) for e in cubes]
+        [setattr(e, "world_parent", scene) for e in cube_entities]
         rotation_helper.rotation = (0, 0, 0)
 
     win_text_entity = Text(y=0.35, text="", color=color.green, origin=(0, 0), scale=3)
 
+    # NOTE: This is currently based on rendering state.
+    # Future: should be model-based (CubeModel.is_solved())
     def check_for_win():
-        if {e.world_rotation for e in cubes} == {Vec3(0, 0, 0)}:
+
+        if {e.world_rotation for e in cube_entities} == {Vec3(0, 0, 0)}:
             win_text_entity.text = "SOLVED!"
             win_text_entity.appear()
         else:
