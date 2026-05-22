@@ -33,6 +33,7 @@ class CameraTracker(Entity):
 
     def __init__(self, camera_to_track, rotate_side_callback):
         super().__init__()
+        self.prime_mode = False
         self.cam = camera_to_track
         self.rotate_side_callback = (
             rotate_side_callback  # Reference to rotate_side in main()
@@ -86,6 +87,10 @@ class CameraTracker(Entity):
 
     def input(self, key):
 
+        if key == "space":
+            self.prime_mode = not self.prime_mode
+            return
+
         base_key = key.lower()
 
         valid_keys = {"w", "a", "s", "d", "e", "1", "2", "3", "4"}
@@ -120,6 +125,16 @@ class CameraTracker(Entity):
                     1 if cam_up_raw.dot(face_vector) > 0 else -1
                 )
 
+        # Added self.prime_mode check as an OR condition
+        is_prime = (
+            "shift+" in key
+            or key.isupper()
+            or held_keys["shift"] > 0
+            or getattr(self, "prime_mode", False)
+        )
+
+        direction = -1 if is_prime else 1
+
         # --- Use match/case for debug toggles and moves ---
         # --- For moves, append parameters to queue instead of executing instantly ---
         match base_key:
@@ -136,20 +151,20 @@ class CameraTracker(Entity):
                 window.collider_counter.enabled = not window.collider_counter.enabled
                 return
             case "d":
-                direction = -1 if is_prime else 1
                 self.add_move_to_queue(screen_right_axis, direction)
+                return
             case "a":
-                direction = -1 if is_prime else 1
                 self.add_move_to_queue(-screen_right_axis, direction)
+                return
             case "w":
-                direction = -1 if is_prime else 1
                 self.add_move_to_queue(screen_up_axis, direction)
+                return
             case "s":
-                direction = -1 if is_prime else 1
                 self.add_move_to_queue(-screen_up_axis, direction)
+                return
             case "e":
-                direction = -1 if is_prime else 1
                 self.add_move_to_queue(self.current_face, direction)
+                return
 
 
 def main():
