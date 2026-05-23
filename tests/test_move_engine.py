@@ -7,7 +7,7 @@ sys.path.insert(
 )
 
 from rubiks_cube.engine.move_engine import MoveEngine, InvalidMoveError
-from rubiks_cube.cube_model import CubeModel
+from rubiks_cube.model.cube_model import CubeModel
 
 
 def test_apply_R_affects_right_face_and_moves_positions():
@@ -19,15 +19,17 @@ def test_apply_R_affects_right_face_and_moves_positions():
 
     # Apply a right-face move using normal tuple (1,0,0)
     original_id = id(model.cubes[(2, 0, 0)])
-    result = engine.apply((1, 0, 0))
+    # Compute the change from the engine, then commit via the model API.
+    change = engine.apply((1, 0, 0))
+    result = model.apply_move(change)
 
-    assert "move" in result and "affected" in result
+    assert isinstance(result, dict) and "after" in result
 
     # After applying R, the cubie that was at the maximum-x corner
     # should have moved to a different coordinate. Verify by checking
-    # that no cubie's stored 'pos' still equals the original corner.
+    # that the original cubie's dict object identity is no longer present
+    # in the committed model state.
     assert (2, 2, 0) in model.cubes
-    # Ensure the original cubie object moved (its dict identity no longer present)
     assert not any(id(data) == original_id for data in model.cubes.values())
     assert len(model.cubes) == 27
 

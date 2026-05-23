@@ -15,44 +15,107 @@ class CubeController:
         self.model = model
         self.renderer_callback = renderer_callback
 
+        # Internal queue owned by controller to ensure sequencing independent
+        # of the renderer implementation.
+        self._queue = []
+        self._is_processing = False
+
     def apply_rotate(self, normal_or_move, direction=1, speed=1, tracker=None):
-        """Apply a rotate action coming from input.
+        """Enqueue a rotate action to be processed sequentially by the controller.
 
-        Accepts either a normal-like object (Vec3) or a canonical Move.
-        Calls the engine to apply the move synchronously (mutating the
-        provided CubeModel), then asks the renderer to animate the same
-        face to preserve UX.
+        Actions are tuples: (normal_or_move, direction, speed, tracker)
         """
-        try:
-            print(
-                "[CubeController] apply_rotate called:",
-                normal_or_move,
-                direction,
-                "tracker=",
-                bool(tracker),
-            )
-            result = self.engine.apply(normal_or_move, direction=direction)
-        except Exception as e:
-            print("[CubeController] engine.apply error:", e)
-            return
-
-        # Ask the renderer to animate the same face (preserve existing API)
-        if self.renderer_callback:
-            try:
-                self.renderer_callback(
-                    normal_or_move, direction, speed=speed, tracker=tracker
-                )
-            except TypeError:
-                self.renderer_callback(normal_or_move, tracker=tracker)
+        self._queue.append((normal_or_move, direction, speed, tracker))
+        # Start processing if idle
+        if not self._is_processing:
+            self._process_queue()
 
     def process_actions(self, actions):
-        """Process a list of actions produced by an InputHandler.
+        """Accept actions from `InputHandler.poll()` and enqueue them.
 
         Each action is a tuple `(normal_or_move, direction, tracker)`.
         """
         for normal_or_move, direction, tracker in actions:
-            if tracker:
-                tracker.is_animating = True
             self.apply_rotate(
                 normal_or_move, direction=direction, speed=1, tracker=tracker
             )
+
+    def _process_queue(self):
+        if not self._queue:
+            self._is_processing = False
+            return
+
+        normal_or_move, direction, speed, tracker = self._queue.pop(0)
+        self._is_processing = True
+
+        # Compute change (engine is pure)
+        try:
+            change = self.engine.apply(normal_or_move, direction=direction)
+        except Exception as e:
+            print("[CubeController] engine.apply error:", e)
+            self._on_action_complete(tracker)
+            return
+
+        # Snapshot before, commit to model, then animate
+        try:
+            before = self.model.snapshot()
+            result = self.model.apply_move(change)
+            after = (
+                result.get("after")
+                if isinstance(result, dict)
+                else self.model.snapshot()
+            )
+        except Exception as e:
+            print("[CubeController] model.apply_move error:", e)
+            self._on_action_complete(tracker)
+            return
+
+        # Start renderer animation. Expect renderer_callback to conform to
+        # animate_from_model_change(before, after, meta, speed, on_complete)
+        if self.renderer_callback:
+            meta = change.get("meta", {})
+
+            def _on_complete():
+                # Allow tracker to observe animation lifecycle
+                if tracker:
+                    try:
+                        tracker.is_animating = False
+                    except Exception:
+                        pass
+                self._on_action_complete(tracker)
+
+            try:
+                # Mark tracker as animating for UI observers
+                if tracker:
+                    tracker.is_animating = True
+
+                # Preferred renderer API
+                self.renderer_callback(
+                    before,
+                    after,
+                    meta,
+                    move=change.get("move"),
+                    affected=change.get("affected"),
+                    speed=speed,
+                    on_complete=_on_complete,
+                )
+            except TypeError:
+                # Fallback to legacy renderer callback signature for migration
+                try:
+                    if tracker:
+                        tracker.is_animating = True
+                    self.renderer_callback(
+                        normal_or_move, direction, speed=speed, tracker=tracker
+                    )
+                finally:
+                    # If legacy renderer won't call completion, we clear and continue
+                    _on_complete()
+        else:
+            # No renderer — immediately complete
+            self._on_action_complete(tracker)
+
+    def _on_action_complete(self, tracker=None):
+        self._is_processing = False
+        # Continue processing next action if present
+        if self._queue:
+            self._process_queue()

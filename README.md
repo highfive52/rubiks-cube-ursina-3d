@@ -17,6 +17,7 @@ Features include:
 ```text
 src/
 └── rubiks_cube/
+  └── app/
     └── main.py
 tests/
     └── test_main.py
@@ -160,7 +161,7 @@ pyinstaller --add-data=".venv/Lib/site-packages/panda3d/etc;panda3d/etc" \
             --add-data=".venv/Lib/site-packages/ursina/fonts;ursina/fonts" \
             --add-data=".venv/Lib/site-packages/ursina/textures;ursina/textures" \
             --add-data="src/rubiks_cube;rubiks_cube" \
-            src/rubiks_cube/main.py
+            src/rubiks_cube/app/main.py
 ```
 
 ### PyPi

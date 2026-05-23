@@ -132,10 +132,13 @@ class MoveEngine:
 
         new_cubes.update(updates)
 
-        # commit atomically
-        self.model.cubes = new_cubes
-
-        return {"move": move, "affected": affected, "meta": {"duration_hint": 0.15}}
+        # Do NOT commit here — return a change description for the caller
+        return {
+            "move": move,
+            "affected": affected,
+            "meta": {"duration_hint": 0.15},
+            "new_cubes": new_cubes,
+        }
 
     # helpers
     def _extreme_layer(self, axis: str, positive: bool) -> int:

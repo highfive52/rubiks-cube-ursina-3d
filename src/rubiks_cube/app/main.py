@@ -18,10 +18,10 @@ from ursina import (
     held_keys,
 )
 
-from .cube_model import CubeModel
-from .input_handler import InputHandler
-from .cube_controller import CubeController
-from .engine.move_engine import MoveEngine
+from ..model.cube_model import CubeModel
+from ..input_handler import InputHandler
+from ..cube_controller import CubeController
+from ..engine.move_engine import MoveEngine
 
 cube_model = CubeModel()
 # Module-level runtime hooks populated in main()
@@ -53,14 +53,13 @@ FACE_MAPPINGS = {
 # =========================================================
 # INPUT / CAMERA LOGIC
 # =========================================================
-# NOTE: This will become InputController in Phase 4
 class CameraTracker(Entity):
 
     def __init__(self, camera_to_track, rotate_side_callback):
         super().__init__()
         self.prime_mode = False
         self.cam = camera_to_track
-        self.rotate_side_callback = rotate_side_callback  # Callback set in main(): may enqueue actions or call renderer
+        self.rotate_side_callback = rotate_side_callback
 
         # Internal Queue Tracking State
         self.move_queue = deque()
@@ -81,22 +80,17 @@ class CameraTracker(Entity):
         self.move_queue.append((normal, direction))
 
     def update(self):
-        # Poll global input queue so the tracker processes actions enqueued
-        # by other runtime components (colliders, global handlers).
         global input_handler, controller
         if input_handler is not None and controller is not None:
             actions = input_handler.poll()
             if actions:
                 controller.process_actions(actions)
 
-        # --- 1. Process Animation Queue (FIFO) ---
         if not self.is_animating and self.move_queue:
             self.is_animating = True
             normal, direction = self.move_queue.popleft()
-            # Pass 'self' so the rotation callback can clear our animation lock when finished
             self.rotate_side_callback(normal, direction, tracker=self)
 
-        # --- 2. Track Face Perspective ---
         cam_forward = Vec3(self.cam.forward.x, self.cam.forward.y, self.cam.forward.z)
 
         best_match_vector = None
@@ -130,11 +124,9 @@ class CameraTracker(Entity):
 
         is_prime = held_keys["shift"] > 0
 
-        # --- Extract the Camera's True Screen Vectors ---
         cam_right_raw = self.cam.right
         cam_up_raw = self.cam.up
 
-        # --- Align to Nearest Global Face Vector Axis ---
         screen_right_axis = None
         screen_up_axis = None
         max_right_dot = -1.0
@@ -156,7 +148,6 @@ class CameraTracker(Entity):
                     1 if cam_up_raw.dot(face_vector) > 0 else -1
                 )
 
-        # Added self.prime_mode check as an OR condition
         is_prime = (
             "shift+" in key
             or key.isupper()
@@ -166,8 +157,6 @@ class CameraTracker(Entity):
 
         direction = -1 if is_prime else 1
 
-        # --- Use match/case for debug toggles and moves ---
-        # --- For moves, append parameters to queue instead of executing instantly ---
         match base_key:
             case "1":
                 self.telemetry_text.enabled = not self.telemetry_text.enabled
@@ -211,7 +200,6 @@ def main():
         color.green,  # front
     ]
 
-    # make a model with a separate color on each face
     combine_parent = Entity(enabled=False)
     for i, direction in enumerate((Vec3.right, Vec3.up, Vec3.forward)):
         e = Entity(
@@ -234,7 +222,6 @@ def main():
 
     combine_parent.combine()
 
-    # place 3x3x3 cubes
     cube_entities = []
     for x in range(3):
         for y in range(3):
@@ -246,7 +233,6 @@ def main():
                 )
                 cube_entities.append(e)
 
-    # rotate a side when we click on it
     collider = Entity(model="cube", scale=3, collider="box", visible=False)
 
     def collider_input(key):
@@ -260,130 +246,8 @@ def main():
 
     rotation_helper = Entity()
 
-    # =========================================================
-    # CUBE MODEL + RENDERING (CURRENTLY COUPLED)
-    # =========================================================
-    def rotate_side(normal, direction=1, speed=1, tracker=None):
-
-        # =====================================================
-        # RENDERING LAYER (URSINA ENTITIES ONLY)
-        # =====================================================
-
-        # Future: this becomes CubeModel.apply_move()
-
-        visual_degrees = 90 * direction
-
-        # Correct rotation glitch for opposing perspective anchors
-        if normal in (Vec3(-1, 0, 0), Vec3(0, -1, 0), Vec3(0, 0, 1)):
-            visual_degrees = -visual_degrees
-
-        match (normal.x, normal.y, normal.z):
-            case (1, 0, 0):
-                [
-                    setattr(e, "world_parent", rotation_helper)
-                    for e in cube_entities
-                    if e.x > 0
-                ]
-                rotation_helper.animate(
-                    "rotation_x",
-                    visual_degrees,
-                    duration=0.15 * speed,
-                    curve=curve.linear,
-                    interrupt="finish",
-                )
-            case (-1, 0, 0):
-                [
-                    setattr(e, "world_parent", rotation_helper)
-                    for e in cube_entities
-                    if e.x < 0
-                ]
-                rotation_helper.animate(
-                    "rotation_x",
-                    visual_degrees,
-                    duration=0.15 * speed,
-                    curve=curve.linear,
-                    interrupt="finish",
-                )
-            case (0, 1, 0):
-                [
-                    setattr(e, "world_parent", rotation_helper)
-                    for e in cube_entities
-                    if e.y > 0
-                ]
-                rotation_helper.animate(
-                    "rotation_y",
-                    visual_degrees,
-                    duration=0.15 * speed,
-                    curve=curve.linear,
-                    interrupt="finish",
-                )
-            case (0, -1, 0):
-                [
-                    setattr(e, "world_parent", rotation_helper)
-                    for e in cube_entities
-                    if e.y < 0
-                ]
-                rotation_helper.animate(
-                    "rotation_y",
-                    visual_degrees,
-                    duration=0.15 * speed,
-                    curve=curve.linear,
-                    interrupt="finish",
-                )
-            case (0, 0, 1):
-                [
-                    setattr(e, "world_parent", rotation_helper)
-                    for e in cube_entities
-                    if e.z > 0
-                ]
-                rotation_helper.animate(
-                    "rotation_z",
-                    visual_degrees,
-                    duration=0.15 * speed,
-                    curve=curve.linear,
-                    interrupt="finish",
-                )
-            case (0, 0, -1):
-                [
-                    setattr(e, "world_parent", rotation_helper)
-                    for e in cube_entities
-                    if e.z < 0
-                ]
-                rotation_helper.animate(
-                    "rotation_z",
-                    visual_degrees,
-                    duration=0.15 * speed,
-                    curve=curve.linear,
-                    interrupt="finish",
-                )
-
-        invoke(reset_rotation_helper, delay=0.2 * speed)
-
-        if speed and tracker:
-            collider.ignore_input = True
-
-            @after(0.25 * speed)
-            def _():
-                collider.ignore_input = False
-                check_for_win()
-                # UNLOCK QUEUE: Move finished cleanly, reset animation state on tracker
-                tracker.is_animating = False
-
-        else:
-            # Immediate unlock for speed=0 instant randomizations
-            if tracker:
-                tracker.is_animating = False
-
-        sync_model_from_entities(cube_model, cube_entities)
-
-    def reset_rotation_helper():
-        [setattr(e, "world_parent", scene) for e in cube_entities]
-        rotation_helper.rotation = (0, 0, 0)
-
     win_text_entity = Text(y=0.35, text="", color=color.green, origin=(0, 0), scale=3)
 
-    # NOTE: This is currently based on rendering state.
-    # Future: should be model-based (CubeModel.is_solved())
     def check_for_win():
 
         if cube_model.is_solved():
@@ -392,10 +256,13 @@ def main():
         else:
             win_text_entity.text = ""
 
-    def randomize():
-        if tracker.is_animating:
-            return
+    from ..renderer.ursina_renderer import make_ursina_renderer
 
+    animate_fn = make_ursina_renderer(
+        cube_entities, rotation_helper, collider, check_for_win
+    )
+
+    def randomize():
         faces = (
             Vec3(1, 0, 0),
             Vec3(0, 1, 0),
@@ -406,8 +273,8 @@ def main():
         )
 
         for _ in range(20):
-            rotate_side(
-                normal=random.choice(faces), direction=random.choice((-1, 1)), speed=0
+            input_handler.enqueue_action(
+                random.choice(faces), random.choice((-1, 1)), tracker=None
             )
 
     randomize_button = Button(
@@ -417,32 +284,22 @@ def main():
 
     window.color = color._16
 
-    # 1. Instantiate the camera
     editor_camera = EditorCamera()
-
-    # 2. Tell EditorCamera to ignore keyboard inputs so it stops stealing WASD
-    # (Mouse pan, orbit, and zoom will still work fine!)
     editor_camera.ignore_input = True
-    # Also override the camera's input handler to be a no-op to ensure
-    # WASD/E are available for our `CameraTracker`.
     editor_camera.input = lambda key: None
 
-    # 3. Instantiate input handler, controller and tracker.
     input_handler = InputHandler()
     move_engine = MoveEngine(cube_model)
     controller = CubeController(
-        engine=move_engine, model=cube_model, renderer_callback=rotate_side
+        engine=move_engine, model=cube_model, renderer_callback=animate_fn
     )
 
-    # CameraTracker now enqueues actions into the InputHandler
     tracker = CameraTracker(
         camera_to_track=editor_camera, rotate_side_callback=input_handler.enqueue_action
     )
-    # Ensure tracker is part of the scene and active so it receives input events
     tracker.parent = scene
     tracker.enabled = True
 
-    # Populate module-level references so the global `update()` works
     globals()["input_handler"] = input_handler
     globals()["controller"] = controller
 

@@ -4,7 +4,7 @@ import importlib
 import sys
 
 # Import main as a module, not as a function
-main = importlib.import_module("rubiks_cube.main")
+main = importlib.import_module("rubiks_cube.app.main")
 
 
 # --- Helpers for testing ---
@@ -34,18 +34,18 @@ def make_test_cube():
 
 def test_import_main_module():
     """Test that the main module can be imported without error."""
-    import rubiks_cube.main
+    import rubiks_cube.app.main
 
 
 def test_main_function_exists():
     """Test that main() function exists in the module."""
-    import rubiks_cube.main as main_mod
+    import rubiks_cube.app.main as main_mod
 
     assert hasattr(main_mod, "main") and callable(main_mod.main)
 
 
 def test_camera_tracker_class_exists():
     """Test that CameraTracker class exists in the module."""
-    import rubiks_cube.main as main_mod
+    import rubiks_cube.app.main as main_mod
 
     assert hasattr(main_mod, "CameraTracker")
