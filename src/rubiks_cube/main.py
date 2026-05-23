@@ -19,8 +19,14 @@ from ursina import (
 )
 
 from .cube_model import CubeModel
+from .input_handler import InputHandler
+from .cube_controller import CubeController
+from .engine.move_engine import MoveEngine
 
 cube_model = CubeModel()
+# Module-level runtime hooks populated in main()
+input_handler = None
+controller = None
 
 
 def sync_model_from_entities(model, cube_entities):
@@ -54,9 +60,7 @@ class CameraTracker(Entity):
         super().__init__()
         self.prime_mode = False
         self.cam = camera_to_track
-        self.rotate_side_callback = (
-            rotate_side_callback  # Reference to rotate_side in main()
-        )
+        self.rotate_side_callback = rotate_side_callback  # Callback set in main(): may enqueue actions or call renderer
 
         # Internal Queue Tracking State
         self.move_queue = deque()
@@ -77,6 +81,14 @@ class CameraTracker(Entity):
         self.move_queue.append((normal, direction))
 
     def update(self):
+        # Poll global input queue so the tracker processes actions enqueued
+        # by other runtime components (colliders, global handlers).
+        global input_handler, controller
+        if input_handler is not None and controller is not None:
+            actions = input_handler.poll()
+            if actions:
+                controller.process_actions(actions)
+
         # --- 1. Process Animation Queue (FIFO) ---
         if not self.is_animating and self.move_queue:
             self.is_animating = True
@@ -240,9 +252,9 @@ def main():
     def collider_input(key):
         if mouse.hovered_entity == collider:
             if key == "left mouse down":
-                rotate_side(mouse.normal, 1)
+                input_handler.enqueue_action(mouse.normal, 1, tracker=None)
             elif key == "right mouse down":
-                rotate_side(mouse.normal, -1)
+                input_handler.enqueue_action(mouse.normal, -1, tracker=None)
 
     collider.input = collider_input
 
@@ -381,6 +393,9 @@ def main():
             win_text_entity.text = ""
 
     def randomize():
+        if tracker.is_animating:
+            return
+
         faces = (
             Vec3(1, 0, 0),
             Vec3(0, 1, 0),
@@ -389,6 +404,7 @@ def main():
             Vec3(0, -1, 0),
             Vec3(0, 0, -1),
         )
+
         for _ in range(20):
             rotate_side(
                 normal=random.choice(faces), direction=random.choice((-1, 1)), speed=0
@@ -407,11 +423,28 @@ def main():
     # 2. Tell EditorCamera to ignore keyboard inputs so it stops stealing WASD
     # (Mouse pan, orbit, and zoom will still work fine!)
     editor_camera.ignore_input = True
+    # Also override the camera's input handler to be a no-op to ensure
+    # WASD/E are available for our `CameraTracker`.
+    editor_camera.input = lambda key: None
 
-    # 3. Instantiate the tracker, passing the callback
-    tracker = CameraTracker(
-        camera_to_track=editor_camera, rotate_side_callback=rotate_side
+    # 3. Instantiate input handler, controller and tracker.
+    input_handler = InputHandler()
+    move_engine = MoveEngine(cube_model)
+    controller = CubeController(
+        engine=move_engine, model=cube_model, renderer_callback=rotate_side
     )
+
+    # CameraTracker now enqueues actions into the InputHandler
+    tracker = CameraTracker(
+        camera_to_track=editor_camera, rotate_side_callback=input_handler.enqueue_action
+    )
+    # Ensure tracker is part of the scene and active so it receives input events
+    tracker.parent = scene
+    tracker.enabled = True
+
+    # Populate module-level references so the global `update()` works
+    globals()["input_handler"] = input_handler
+    globals()["controller"] = controller
 
     app.run()
 
