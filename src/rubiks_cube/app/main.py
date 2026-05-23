@@ -19,7 +19,7 @@ from ursina import (
 )
 
 from ..model.cube_model import CubeModel
-from ..input_handler import InputHandler
+
 from ..cube_controller import CubeController
 from ..engine.move_engine import MoveEngine
 
@@ -76,8 +76,35 @@ class CameraTracker(Entity):
         )
 
     def add_move_to_queue(self, normal, direction=1):
-        """Public method allowing mouse clicks or keys to push moves safely into the queue."""
-        self.move_queue.append((normal, direction))
+        """Forward an intended move into the provided rotate_side_callback.
+
+        This acts as an Ursina adapter: instead of interpreting or owning the
+        move queue, the tracker forwards the raw intent (normal, direction)
+        to the router (legacy `InputHandler.enqueue_action` or new
+        `InputController.enqueue_action`).
+        """
+
+        # Normalize `normal` into a plain tuple of ints to keep the input
+        # layer renderer-agnostic and serializable. Guard against None.
+        def _to_tuple(n):
+            if n is None:
+                return None
+            try:
+                return int(n.x), int(n.y), int(n.z)
+            except Exception:
+                try:
+                    return tuple(map(int, n))
+                except Exception:
+                    return None
+
+        norm = _to_tuple(normal)
+        if norm is None:
+            # ignore malformed inputs
+            return
+
+        # rotate_side_callback is expected to be a callable accepting
+        # (action_or_normal, direction=1, tracker=None)
+        self.rotate_side_callback(norm, direction, tracker=self)
 
     def update(self):
         global input_handler, controller
@@ -86,10 +113,9 @@ class CameraTracker(Entity):
             if actions:
                 controller.process_actions(actions)
 
-        if not self.is_animating and self.move_queue:
-            self.is_animating = True
-            normal, direction = self.move_queue.popleft()
-            self.rotate_side_callback(normal, direction, tracker=self)
+        # Move dispatching is handled by the input layer (legacy or new).
+        # The tracker no longer owns a move queue; keep `is_animating` for
+        # telemetry compatibility but do not consume moves here.
 
         cam_forward = Vec3(self.cam.forward.x, self.cam.forward.y, self.cam.forward.z)
 
@@ -288,7 +314,11 @@ def main():
     editor_camera.ignore_input = True
     editor_camera.input = lambda key: None
 
-    input_handler = InputHandler()
+    # Use the new platform-agnostic InputController (legacy removed)
+    from ..input import InputController
+
+    input_handler = InputController()
+
     move_engine = MoveEngine(cube_model)
     controller = CubeController(
         engine=move_engine, model=cube_model, renderer_callback=animate_fn

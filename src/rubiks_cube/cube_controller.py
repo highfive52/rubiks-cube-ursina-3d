@@ -52,7 +52,21 @@ class CubeController:
         try:
             change = self.engine.apply(normal_or_move, direction=direction)
         except Exception as e:
+            # Log the engine error and, for common ignored-action cases,
+            # emit a concise runtime notice so regressions are easier to find.
             print("[CubeController] engine.apply error:", e)
+            try:
+                msg = str(e)
+                if "No cubies affected by move" in msg:
+                    mcount = len(getattr(self.model, "cubes", {}))
+                    print(
+                        "[CubeController] ignored action:",
+                        f"action={normal_or_move}",
+                        f"direction={direction}",
+                        f"model_cubies={mcount}",
+                    )
+            except Exception:
+                pass
             self._on_action_complete(tracker)
             return
 
