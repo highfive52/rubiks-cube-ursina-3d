@@ -41,6 +41,47 @@ class CubeController:
             )
 
     def _process_queue(self):
+        """Process the controller queue: compute engine change, commit model, animate.
+
+        Workflow and contracts
+        - Engine
+        - Call: `change = self.engine.apply(normal_or_move, direction=direction)`
+        - Expected return: a mapping (dict-like) describing the move. Typical keys:
+            - `'move'`: canonical move representation (e.g., layer/axis spec or Move object)
+            - `'affected'`: list/iterable of affected cubie identifiers
+            - `'meta'`: optional metadata used by renderer (rotation axes, pivot, etc.)
+            - `'new_cubes'`: new cube-state suitable for `model.apply_move`
+
+        - Model
+        - Call: `result = self.model.apply_move(change)`
+        - Contract: `apply_move` commits `change['new_cubes']` to `self.model` and usually returns
+            a dict with `{'before': <snapshot>, 'after': <snapshot>}`. If it returns something else,
+            the controller falls back to calling `self.model.snapshot()` for the `after` state.
+        - `snapshot()` returns whatever the model exposes as a serializable state (used by renderer).
+
+        - Renderer
+        - Preferred callback signature:
+            `renderer_callback(before, after, meta, *, move=None, affected=None, speed=1, on_complete=None)`
+            - `before` / `after`: snapshots from `model.snapshot()` or `apply_move` result
+            - `meta`: `change.get('meta', {})`
+            - `move` / `affected`: optional convenience fields from `change`
+            - `speed`: playback speed
+            - `on_complete`: callback to call when animation finishes (controller uses this to continue processing)
+
+        - Legacy fallback (supported for migration):
+            `renderer_callback(normal_or_move, direction, speed=<>, tracker=<>)`
+            - If the preferred call raises `TypeError`, the controller will call legacy signature and then
+            treat the action as completed (clears animation state) if the legacy renderer doesn't invoke `on_complete`.
+
+        - Side effects & lifecycle
+            - Controller sets `tracker.is_animating = True` before animation and clears it (`False`) in the `on_complete`.
+            - `_on_action_complete(tracker)` is called to mark the controller idle and continue the queue.
+        - Error handling
+            - Exceptions from `engine.apply` or `model.apply_move` are logged; the controller marks the action complete
+            and proceeds to the next queued action.
+
+        """
+
         if not self._queue:
             self._is_processing = False
             return

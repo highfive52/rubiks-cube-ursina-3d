@@ -19,11 +19,11 @@ from ursina import (
 )
 
 from ..model.cube_model import CubeModel
-
 from ..cube_controller import CubeController
 from ..engine.move_engine import MoveEngine
+from ..input import InputController
+from ..input.camera_mapping import select_face, screen_axes
 
-cube_model = CubeModel()
 # Module-level runtime hooks populated in main()
 input_handler = None
 controller = None
@@ -48,6 +48,11 @@ FACE_MAPPINGS = {
     Vec3(0, 0, 1): {"name": "Back (Azure)", "color": color.azure},
     Vec3(0, 0, -1): {"name": "Front (Green)", "color": color.green},
 }
+
+# Precompute tuple normals for the tested helpers (constants at runtime)
+FACE_NORMALS = [(int(k.x), int(k.y), int(k.z)) for k in FACE_MAPPINGS.keys()]
+# Map tuple normal -> face metadata for quick lookup
+FACE_NORMALS_MAP = {(int(k.x), int(k.y), int(k.z)): v for k, v in FACE_MAPPINGS.items()}
 
 
 # =========================================================
@@ -119,22 +124,17 @@ class CameraTracker(Entity):
 
         cam_forward = Vec3(self.cam.forward.x, self.cam.forward.y, self.cam.forward.z)
 
-        best_match_vector = None
-        highest_similarity = -1.0
-
-        for face_vector in FACE_MAPPINGS.keys():
-            similarity = cam_forward.dot(-face_vector)
-            if similarity > highest_similarity:
-                highest_similarity = similarity
-                best_match_vector = face_vector
+        # Use tested helper to pick the best-facing normal (returns tuple)
+        try:
+            best_match_vector = select_face(cam_forward, FACE_NORMALS)
+        except Exception:
+            best_match_vector = None
 
         if best_match_vector:
             self.current_face = best_match_vector
-            face_info = FACE_MAPPINGS[best_match_vector]
-            self.telemetry_text.text = (
-                f"Facing: {face_info['name']}\nVector: {best_match_vector}"
-            )
-            self.telemetry_text.color = face_info["color"]
+            face_info = FACE_NORMALS_MAP.get(best_match_vector, {})
+            self.telemetry_text.text = f"Facing: {face_info.get('name', best_match_vector)}\nVector: {best_match_vector}"
+            self.telemetry_text.color = face_info.get("color", color.white)
 
     def input(self, key):
 
@@ -153,26 +153,13 @@ class CameraTracker(Entity):
         cam_right_raw = self.cam.right
         cam_up_raw = self.cam.up
 
-        screen_right_axis = None
-        screen_up_axis = None
-        max_right_dot = -1.0
-        max_up_dot = -1.0
-
-        for face_vector in FACE_MAPPINGS.keys():
-            right_dot = abs(cam_right_raw.dot(face_vector))
-            up_dot = abs(cam_up_raw.dot(face_vector))
-
-            if right_dot > max_right_dot:
-                max_right_dot = right_dot
-                screen_right_axis = face_vector * (
-                    1 if cam_right_raw.dot(face_vector) > 0 else -1
-                )
-
-            if up_dot > max_up_dot:
-                max_up_dot = up_dot
-                screen_up_axis = face_vector * (
-                    1 if cam_up_raw.dot(face_vector) > 0 else -1
-                )
+        # Use tested helper to compute screen axes (returns tuple normals)
+        try:
+            screen_right_axis, screen_up_axis = screen_axes(
+                cam_right_raw, cam_up_raw, FACE_NORMALS
+            )
+        except Exception:
+            screen_right_axis, screen_up_axis = (None, None)
 
         is_prime = (
             "shift+" in key
@@ -200,13 +187,17 @@ class CameraTracker(Entity):
                 self.add_move_to_queue(screen_right_axis, direction)
                 return
             case "a":
-                self.add_move_to_queue(-screen_right_axis, direction)
+                if screen_right_axis is None:
+                    return
+                self.add_move_to_queue(tuple(-v for v in screen_right_axis), direction)
                 return
             case "w":
                 self.add_move_to_queue(screen_up_axis, direction)
                 return
             case "s":
-                self.add_move_to_queue(-screen_up_axis, direction)
+                if screen_up_axis is None:
+                    return
+                self.add_move_to_queue(tuple(-v for v in screen_up_axis), direction)
                 return
             case "e":
                 self.add_move_to_queue(self.current_face, direction)
@@ -214,8 +205,20 @@ class CameraTracker(Entity):
 
 
 def main():
+    """Summary:
+
+    - The main function initializes the Ursina app, sets up the cube model and move engine, and creates the cube entities.
+    - It defines a CameraTracker class that tracks the camera orientation and user input to determine which face of the cube is being interacted with.
+    - The tracker forwards move intents to the input handler, which are then processed by the controller to update the model and trigger animations in the renderer.
+    - The main function also includes a randomize button to apply random moves to the cube and a text entity to display a "SOLVED!" message when the cube is solved.
+    """
+
+    from ..renderer.ursina_renderer import make_ursina_renderer
 
     app = Ursina()
+    cube_model = CubeModel()
+    move_engine = MoveEngine(cube_model)
+    input_handler = InputController()
 
     cube_colors = [
         color.pink,  # right
@@ -226,6 +229,15 @@ def main():
         color.green,  # front
     ]
 
+    # The rest of the main function
+    # - sets up the Ursina scene,
+    # - creates the cube entities,
+    # - and wires everything together.
+    #
+    # The CameraTracker is responsible for interpreting camera orientation and user input to enqueue moves through the input handler,
+    # which are then processed by the controller and animated by the renderer.
+
+    # Create cubie templates by combining 6 planes into a single mesh, then instantiate that for each cubie.
     combine_parent = Entity(enabled=False)
     for i, direction in enumerate((Vec3.right, Vec3.up, Vec3.forward)):
         e = Entity(
@@ -248,6 +260,8 @@ def main():
 
     combine_parent.combine()
 
+    # Renderer's list of the 27 visible cubies
+    # Copies the cubie template and positions them in a 3x3x3 grid centered at the origin, where each coordinate is in [-1, 0, 1].
     cube_entities = []
     for x in range(3):
         for y in range(3):
@@ -259,8 +273,12 @@ def main():
                 )
                 cube_entities.append(e)
 
+    # Create a single collider for the entire cube that captures face clicks, which are interpreted as move intents.
+    # This is a hit box that covers the entire cube; we will interpret the click normal to determine which face was clicked.
     collider = Entity(model="cube", scale=3, collider="box", visible=False)
 
+    # mouse.hovered_entity is global state updated by Ursina’s mouse system and is available anywhere at runtime.
+    # You only need module‑level handlers if you intentionally want a top‑level input(key) function (Ursina will call that too).
     def collider_input(key):
         if mouse.hovered_entity == collider:
             if key == "left mouse down":
@@ -270,24 +288,8 @@ def main():
 
     collider.input = collider_input
 
-    rotation_helper = Entity()
-
-    win_text_entity = Text(y=0.35, text="", color=color.green, origin=(0, 0), scale=3)
-
-    def check_for_win():
-
-        if cube_model.is_solved():
-            win_text_entity.text = "SOLVED!"
-            win_text_entity.appear()
-        else:
-            win_text_entity.text = ""
-
-    from ..renderer.ursina_renderer import make_ursina_renderer
-
-    animate_fn = make_ursina_renderer(
-        cube_entities, rotation_helper, collider, check_for_win
-    )
-
+    # Randomize function that applies a series of random moves to the cube when a button is clicked.
+    # This demonstrates how to enqueue moves through the input handler, which will then be processed by the controller and animated by the renderer.
     def randomize():
         faces = (
             Vec3(1, 0, 0),
@@ -308,18 +310,31 @@ def main():
     )
     randomize_button.fit_to_text()
 
+    # Text entity for displaying "SOLVED!" when the cube is solved. Initially empty and invisible.
+    win_text_entity = Text(y=0.35, text="", color=color.green, origin=(0, 0), scale=3)
+
+    def check_for_win():
+
+        if cube_model.is_solved():
+            win_text_entity.text = "SOLVED!"
+            win_text_entity.appear()
+        else:
+            win_text_entity.text = ""
+
+    # Parent for rotating cubies during animation
+    rotation_helper = Entity()
+
+    animate_fn = make_ursina_renderer(
+        cube_entities, rotation_helper, collider, check_for_win
+    )
+
     window.color = color._16
 
     editor_camera = EditorCamera()
     editor_camera.ignore_input = True
     editor_camera.input = lambda key: None
 
-    # Use the new platform-agnostic InputController (legacy removed)
-    from ..input import InputController
-
-    input_handler = InputController()
-
-    move_engine = MoveEngine(cube_model)
+    # Actions are handled by the controller during the CameraTracker update(), which polls the input handler for new actions and processes them sequentially.
     controller = CubeController(
         engine=move_engine, model=cube_model, renderer_callback=animate_fn
     )

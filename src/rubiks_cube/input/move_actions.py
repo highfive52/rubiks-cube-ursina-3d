@@ -27,6 +27,22 @@ class MoveAction:
             d.pop("meta")
         return d
 
+    def to_normal(self) -> tuple[int, int, int]:
+        """Convert this MoveAction (axis, layer) into a normal tuple.
+
+        Returns a 3-tuple like (1,0,0) or (-1,0,0). Falls back to (0,0,0)
+        if the axis is unknown.
+        """
+        ax = getattr(self, "axis", None)
+        layer = int(getattr(self, "layer", 0))
+        if ax == "x":
+            return (layer, 0, 0)
+        if ax == "y":
+            return (0, layer, 0)
+        if ax == "z":
+            return (0, 0, layer)
+        return (0, 0, 0)
+
 
 def move_to_dict(move: Move) -> Dict[str, Any]:
     """Convert canonical `Move` to serializable dict."""

@@ -40,21 +40,11 @@ class InputController:
         if isinstance(action_or_normal, Move):
             normal_or_move = action_or_normal
         elif isinstance(action_or_normal, MoveAction):
-            # convert MoveAction (axis, layer) into a normal tuple
-            ax = getattr(action_or_normal, "axis", None)
-            layer = int(getattr(action_or_normal, "layer", 0))
-            if ax == "x":
-                normal_or_move = (layer, 0, 0)
-            elif ax == "y":
-                normal_or_move = (0, layer, 0)
-            elif ax == "z":
-                normal_or_move = (0, 0, layer)
-            else:
-                # Fallback: attempt to interpret as normal-like
-                try:
-                    normal_or_move = tuple(map(int, action_or_normal))
-                except Exception:
-                    normal_or_move = (0, 0, 0)
+            # Use MoveAction helper to convert to a normal tuple
+            try:
+                normal_or_move = action_or_normal.to_normal()
+            except Exception:
+                normal_or_move = (0, 0, 0)
         else:
             # assume normal-like (tuple/list or Vec3-like)
             normal_or_move = action_or_normal

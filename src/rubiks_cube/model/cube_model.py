@@ -1,5 +1,8 @@
 class CubeModel:
     def __init__(self):
+        # Mapping from coordinate tuple (x, y, z) to cubie data dict.
+        # Each value is a dict with keys `pos`, `rot`, and `id` representing
+        # the cubie's solved-state metadata.
         self.cubes = self._init_solved_state()
 
     def snapshot(self):

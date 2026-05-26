@@ -15,14 +15,32 @@ Features include:
 ## Project Structure
 
 ```text
-src/
-└── rubiks_cube/
-  └── app/
-    └── main.py
-tests/
-    └── test_main.py
 pyproject.toml
 README.md
+scripts/
+  └── debug_moves.py
+src/
+└── rubiks_cube/
+    ├── cube_controller.py
+    ├── app/
+    │   └── main.py
+    ├── engine/
+    │   ├── move_definitions.py
+    │   └── move_engine.py
+    ├── input/
+    │   ├── camera_mapping.py
+    │   ├── input_controller.py
+    │   └── move_actions.py
+    ├── model/
+    │   └── cube_model.py
+    └── renderer/
+        └── ursina_renderer.py
+tests/
+└── test_camera_mapping.py
+└── test_input_integration.py
+└── test_main.py
+└── test_move_actions.py
+└── test_move_engine.py
 ```
 ## License
 
@@ -30,19 +48,29 @@ MIT License
 
 ## How to Run
 
-1. Install dependencies (in your virtual environment):
-  ```sh
-  uv pip install .
-  ```
+Option A — using `uv` (recommended for a reproducible run):
 
-    If you don't have [uv](https://github.com/astral-sh/uv) installed, install it with:
-    ```sh
-    pip install uv
-    ```
-2. Run the app:
-  ```sh
-  uv run rubiks-cube
-  ```
+```powershell
+# install uv if needed
+pip install uv
+uv pip install .
+uv run rubiks-cube
+```
+
+Option B — editable install (common during development):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+rubiks-cube
+```
+
+You can also run directly without installing the package:
+
+```powershell
+python -m rubiks_cube.app.main
+```
 ## Controls
 
   - **Rotate a side with the mouse:**
@@ -143,15 +171,25 @@ for face_vector in FACE_MAPPINGS.keys():
 This project uses [pre-commit](https://pre-commit.com/) to automate code formatting and linting.
 
 ### Setup pre-commit
-1. Install pre-commit (if not already):
-   ```sh
-  pip install pre-commit
-  pre-commit run --all-files
-  ```
+
+Recommended local setup:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+Note: `black`, `pre-commit`, and `pytest` are development tools. Consider moving them out of runtime `dependencies` in `pyproject.toml` into an optional/development extras group so end users don't install dev tools by default.
 
 ## Build
 
-### pyinstaller
+### PyInstaller (Windows — tested)
+
+This command was tested on Windows and builds a standalone executable including the Panda3D binaries that Ursina may require:
 
 ```
 pyinstaller --add-data=".venv/Lib/site-packages/panda3d/etc;panda3d/etc" \
@@ -163,6 +201,19 @@ pyinstaller --add-data=".venv/Lib/site-packages/panda3d/etc;panda3d/etc" \
             --add-data="src/rubiks_cube;rubiks_cube" \
             src/rubiks_cube/app/main.py
 ```
+
+Tip: this command assumes a `.venv` virtual environment with packages installed there; if your environment differs, update the paths accordingly. After the build, inspect the `dist/` folder and add any missing data files via `--add-data` if necessary.
+
+## Troubleshooting
+
+- If input seems unresponsive, ensure the app window is focused.
+- If rendering errors occur, verify your `ursina` and optional `panda3d` versions are compatible with Python 3.12.
+- Packaging issues usually show missing assets in `dist/`; add them via `--add-data` and re-run.
+
+## Contributing / Contact
+
+- Contributions welcome — please open an issue or PR with context for your change.
+- Maintainer contact is listed in `pyproject.toml`.
 
 ### PyPi
 
