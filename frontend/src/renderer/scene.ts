@@ -2,10 +2,23 @@ import * as THREE from 'three'
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js'
 import { createCamera, resizeCamera } from './camera'
 import { addLights } from './lighting'
-import { createCubeShell } from './cube_shell'
+import { createCubeShell, findMeshByGridPos } from './cube_shell'
+import { computeFaceContext, axisTupleToFace } from '../input/camera_face_resolver'
+import { FACE_NORMALS_MAP, FACE_LETTER_TO_TUPLE } from '../input/face_mappings'
+import CameraTracker from '../input/camera_tracker'
+import InputController from '../input/input_controller'
+import RotationSystem from '../engine/rotation_system'
+import MoveEngine from '../engine/move_engine'
+import CubeController from '../engine/cube_controller'
 import CubeModel from '../model/cube_model'
 import CUBE_CONFIG from '../config'
 import { exposeDebug } from './debug'
+
+import { DEBUG } from '../config'
+
+// Suppress verbose debug output unless DEBUG flag enabled. Toggle by
+// starting the dev server with `http://localhost:5173/?debug=1`.
+if (!DEBUG) console.debug = () => {}
 
 type SceneHandle = {
   scene: THREE.Scene
@@ -27,6 +40,24 @@ export function initScene(container: HTMLElement): SceneHandle {
   renderer.domElement.style.width = '100%'
   renderer.domElement.style.height = '100%'
   container.appendChild(renderer.domElement)
+
+  // Camera face HUD (shows which face camera is currently pointing at)
+  const faceHud = document.createElement('div')
+  faceHud.style.position = 'absolute'
+  faceHud.style.left = '12px'
+  faceHud.style.top = '12px'
+  faceHud.style.padding = '6px 10px'
+  faceHud.style.background = 'rgba(0,0,0,0.6)'
+  faceHud.style.color = '#fff'
+  faceHud.style.fontFamily = 'monospace'
+  faceHud.style.fontSize = '14px'
+  faceHud.style.borderRadius = '4px'
+  faceHud.style.zIndex = '999'
+  faceHud.textContent = ''
+  // ensure container is positioned so absolute children are placed correctly
+  const prevPos = getComputedStyle(container).position
+  if (prevPos === 'static') container.style.position = 'relative'
+  container.appendChild(faceHud)
 
   const camera = createCamera(container.clientWidth / container.clientHeight)
   camera.up.set(0, 1, 0)
@@ -80,10 +111,291 @@ export function initScene(container: HTMLElement): SceneHandle {
     animationFrameId = requestAnimationFrame(animate)
     
     controls.update()
+    // Update camera face HUD
+    try {
+      const faceCtx = computeFaceContext(camera, cube)
+      // Map face letter -> tuple -> friendly name
+      const letter = faceCtx.face
+      const tuple = FACE_LETTER_TO_TUPLE[letter]
+      const key = tuple ? `${tuple[0]},${tuple[1]},${tuple[2]}` : null
+      const info = key ? FACE_NORMALS_MAP[key] : null
+      const tupleText = tuple ? ` [${tuple[0]},${tuple[1]},${tuple[2]}]` : ''
+      let text = info ? `Face: ${info.name}${tupleText}` : `Face: ${faceCtx.face}${tupleText}`
+      // Append hovered face (mouse-over) info when available
+      if (hoveredFace) {
+        const htuple = FACE_LETTER_TO_TUPLE[hoveredFace]
+        const hkey = htuple ? `${htuple[0]},${htuple[1]},${htuple[2]}` : null
+        const hinfo = hkey ? FACE_NORMALS_MAP[hkey] : null
+        const htext = hinfo ? `${hinfo.name}` : `${hoveredFace}`
+        const htupleText = htuple ? ` [${htuple[0]},${htuple[1]},${htuple[2]}]` : ''
+        text += ` | Hover: ${htext}${htupleText}`
+        faceHud.style.background = 'rgba(0,0,0,0.6)'
+      } else {
+        if (info) faceHud.style.background = 'rgba(0,0,0,0.6)'
+      }
+      faceHud.textContent = text
+    } catch (e) {
+      // ignore
+    }
     renderer.render(scene, camera)
   }
 
   animate()
+
+  // Phase 8: wire input -> engine -> controller -> rotation system
+  const rotationSystem = new RotationSystem(scene, cube, model)
+  const moveEngine = new MoveEngine(model)
+  const controller = new CubeController(moveEngine, model, (_before, _after, meta, opts) => {
+    // If this is a post-commit notification, resync mesh gridPositions
+    if (opts && (opts as any).committed) {
+      try {
+        const after = _after
+        // Build id -> gridPos map from model snapshot
+        const idMap: Record<string, { x: number; y: number; z: number }> = {}
+        if (after && typeof after === 'object' && (after as Map<string, any>) instanceof Map) {
+          for (const [, d] of (after as Map<string, any>)) {
+            if (d && d.id) idMap[String(d.id)] = d.gridPos
+          }
+        }
+
+        // Update each mesh's gridPosition from idMap and snap its position to grid
+        const gridSize = CUBE_CONFIG.GRID_SIZE
+        const size = CUBE_CONFIG.CUBIE_SIZE
+        const gap = CUBE_CONFIG.GAP
+        const step = size + gap
+        const offset = (gridSize - 1) / 2
+
+        cube.traverse((o: any) => {
+          if (o && o.gridPosition) {
+            const meshId = (o.userData && o.userData.id) ? String(o.userData.id) : `${o.gridPosition.x},${o.gridPosition.y},${o.gridPosition.z}`
+            const newPos = idMap[meshId]
+            if (newPos) {
+              o.gridPosition = { x: newPos.x, y: newPos.y, z: newPos.z }
+              // snap visual position to grid-aligned coordinates
+              o.position.set((newPos.x - offset) * step, (newPos.y - offset) * step, (newPos.z - offset) * step)
+              // Keep existing orientation — mesh quaternions were preserved
+              // during animation reparenting so stickers stay rotated with cubies.
+            }
+          }
+        })
+          // Verification: ensure each model entry maps to a mesh and mesh gridPositions align
+          try {
+            // Use debug verifier (throws in DEBUG) to detect mismatches
+            // `after` is a Map snapshot produced by the controller.
+            try {
+              // lazy import to avoid circulars; run verifier asynchronously
+              import('../debug/verify')
+                .then((m) => {
+                  try {
+                    if (after && (after as any) instanceof Map) m.verifyModelMeshSyncFromSnapshot(after as Map<string, any>, cube)
+                  } catch (err) {
+                    console.warn('resync-verify failed', err)
+                  }
+                })
+                .catch((err) => console.warn('resync-verify import failed', err))
+            } catch (e) {
+              console.warn('resync-verify failed', e)
+            }
+          } catch (e) {
+            console.warn('resync-verify failed', e)
+          }
+      } catch (e) {
+        console.warn('resync meshes failed', e)
+      }
+      return
+    }
+
+    // opts: { move, affected, speed, on_complete }
+    rotationSystem.executeChange({ move: opts?.move, affected: opts?.affected, meta }, { speed: opts?.speed, on_complete: opts?.on_complete }).catch((err) => {
+      console.warn('Rotation failed', err)
+      opts?.on_complete && opts.on_complete()
+    })
+  })
+
+  const inputController = new InputController()
+  // Use CameraTracker to compute camera-relative axes
+  const tracker = new CameraTracker(camera, cube)
+  inputController.setScreenAxesResolver(() => tracker.getScreenAxes())
+  inputController.start((intent) => {
+    console.debug('[Scene] intent received', intent)
+    // forward to controller which handles engine/model/renderer sequence
+    controller.apply_rotate({ face: intent.face, direction: intent.direction }, intent.direction)
+  })
+
+  // --- Mouse hover + click face interaction (Ursina-like) ---
+  const raycaster = new THREE.Raycaster()
+  const mouse = new THREE.Vector2()
+  let hoveredFace: string | null = null
+  let hoveredTuple: [number, number, number] | null = null
+  // reference to avoid unused-local TypeScript error when only set elsewhere
+  void hoveredTuple
+  let highlightedMeshes: THREE.Object3D[] = []
+  let lastHoveredNormalWorld: THREE.Vector3 | null = null
+
+  function clearHighlights() {
+    for (const m of highlightedMeshes) {
+      const mesh = m as THREE.Mesh
+      if (Array.isArray(mesh.material)) {
+        for (const mat of mesh.material as THREE.Material[]) {
+          if ((mat as any).emissive) (mat as any).emissive.setHex(0x000000)
+        }
+      } else if ((mesh.material as any).emissive) {
+        ;(mesh.material as any).emissive.setHex(0x000000)
+      }
+    }
+    highlightedMeshes = []
+  }
+
+  function highlightAffectedByTuple(tuple: [number, number, number]) {
+    clearHighlights()
+    try {
+      const mv = moveEngine.parse(tuple)
+      const axisIndex = { x: 0, y: 1, z: 2 }[mv.axis]
+      const keys = Array.from(model.cubes.keys()).map((k) => k.split(',').map((s) => parseInt(s, 10)) as [number, number, number])
+      const affected = keys.filter((k) => k[axisIndex] === mv.layer)
+      for (const coord of affected) {
+        const mesh = findMeshByGridPos(cube, { x: coord[0], y: coord[1], z: coord[2] }) as any
+        if (mesh) {
+          // tint emissive slightly to highlight
+          if (Array.isArray(mesh.material)) {
+            for (const mat of mesh.material as any[]) {
+              if (mat && typeof mat.emissive !== 'undefined') mat.emissive.setHex(0x444444)
+            }
+          } else if (mesh.material && typeof (mesh.material as any).emissive !== 'undefined') {
+            ;(mesh.material as any).emissive.setHex(0x444444)
+          }
+          highlightedMeshes.push(mesh)
+        }
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  }
+
+  function updateHoverFromEvent(ev: PointerEvent) {
+    const rect = renderer.domElement.getBoundingClientRect()
+    mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1
+    mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(mouse, camera)
+    const intersects = raycaster.intersectObjects(cube.children, true)
+    if (intersects.length > 0) {
+      const it = intersects[0]
+      const mesh = it.object as THREE.Mesh
+      if (it.face && mesh) {
+        // face.normal is in geometry local; convert to world then to cube-local
+        const normalWorld = it.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)).normalize()
+        lastHoveredNormalWorld = normalWorld.clone()
+        const cubeQuat = new THREE.Quaternion()
+        cube.getWorldQuaternion(cubeQuat)
+        const inv = cubeQuat.clone().invert()
+        const localNormal = normalWorld.clone().applyQuaternion(inv)
+        const tuple: [number, number, number] = [Math.round(localNormal.x), Math.round(localNormal.y), Math.round(localNormal.z)]
+        const face = axisTupleToFace(tuple)
+
+        // Only consider exterior faces: the cubie's grid position must be
+        // on the outermost layer along the normal's axis.
+        const gp: any = (mesh as any).gridPosition
+        const gridSize = CUBE_CONFIG.GRID_SIZE
+        let isOuter = false
+        if (gp) {
+          if (tuple[0] === 1 && gp.x === gridSize - 1) isOuter = true
+          if (tuple[0] === -1 && gp.x === 0) isOuter = true
+          if (tuple[1] === 1 && gp.y === gridSize - 1) isOuter = true
+          if (tuple[1] === -1 && gp.y === 0) isOuter = true
+          if (tuple[2] === 1 && gp.z === gridSize - 1) isOuter = true
+          if (tuple[2] === -1 && gp.z === 0) isOuter = true
+        }
+
+        if (!isOuter) {
+          hoveredFace = null
+          hoveredTuple = null
+          return
+        }
+
+          hoveredFace = face
+          hoveredTuple = tuple
+          highlightAffectedByTuple(tuple)
+        return
+      }
+    }
+    hoveredFace = null
+    hoveredTuple = null
+      clearHighlights()
+  }
+
+  renderer.domElement.addEventListener('pointermove', (ev) => {
+    try { updateHoverFromEvent(ev) } catch (_) {}
+  })
+
+  function handleFaceClick(baseDir: 1 | -1 = 1) {
+    // shared handler for left-click or right-button click actions
+    try {
+      if (hoveredFace) {
+        // Base direction (1 for left, -1 for right) then adjust by
+        // camera-facing comparison to ensure positive means clockwise.
+        let dir: 1 | -1 = baseDir
+        try {
+          if (tracker) {
+                  try {
+                if (lastHoveredNormalWorld) {
+                  try {
+                    const camDir = new THREE.Vector3()
+                    camera.getWorldDirection(camDir)
+                    const dot = camDir.dot(lastHoveredNormalWorld)
+                    const signCorrection = dot > 0 ? -1 : 1
+                    console.debug('[Scene] click sign debug', { hoveredFace, camDir: camDir.toArray(), hoveredNormalWorld: lastHoveredNormalWorld.toArray(), dot, signCorrection })
+                    dir = (dir as number) * signCorrection as 1 | -1
+                    console.debug('[Scene] final click dir', { dir })
+                  } catch (e) {
+                    // fallback: keep dir unchanged
+                  }
+                }
+                // Special-case: Front (Green) is expected to behave reversed
+                // relative to the default sign computation — invert its dir
+                // here only for `F` so other faces' behavior remains unchanged.
+                if (hoveredFace === 'F' || hoveredFace === 'L' || hoveredFace === 'D') {
+                  // Invert click direction for Front, Left, and Down per user request
+                  dir = (dir as number) * -1 as 1 | -1
+                  console.debug('[Scene] special-case flip for F/L/D', { dir, face: hoveredFace })
+                }
+              } catch (e) {
+                // fallback: keep dir unchanged
+              }
+            }
+        } catch (e) {
+          // fallback: keep dir = 1
+        }
+        // Use InputController.enqueueIntent so collider input uses the
+        // same pathway as keyboard (InputController -> Controller)
+        inputController.enqueueIntent({ face: hoveredFace as any, direction: dir })
+        clearHighlights()
+      }
+    } catch (e) {
+      console.warn('click enqueue failed', e)
+    }
+  }
+
+  renderer.domElement.addEventListener('click', () => {
+    // left button: now reversed — perform face click with baseDir = -1
+    handleFaceClick(-1)
+  })
+
+  // Right-button should do the same as left. Use pointerdown to capture
+  // right-button presses and prevent the browser context menu.
+  renderer.domElement.addEventListener('pointerdown', (ev: PointerEvent) => {
+    try {
+        if (ev.button === 2) {
+        ev.preventDefault()
+        // right button: reversed — perform face click with baseDir = +1
+        handleFaceClick(1)
+      }
+    } catch (e) {
+      // ignore
+    }
+  })
+
+  // Also prevent the browser context menu on right-click over the canvas
+  renderer.domElement.addEventListener('contextmenu', (ev) => ev.preventDefault())
 
   return {
     scene,
@@ -112,6 +424,10 @@ export function initScene(container: HTMLElement): SceneHandle {
       renderer.dispose()
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement)
+      }
+
+      if (container.contains(faceHud)) {
+        container.removeChild(faceHud)
       }
 
       // Optional: If you aren't reusing the scene elsewhere, 
