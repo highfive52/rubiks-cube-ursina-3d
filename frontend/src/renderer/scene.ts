@@ -3,6 +3,9 @@ import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls
 import { createCamera, resizeCamera } from './camera'
 import { addLights } from './lighting'
 import { createCubeShell } from './cube_shell'
+import CubeModel from '../model/cube_model'
+import CUBE_CONFIG from '../config'
+import { exposeDebug } from './debug'
 
 type SceneHandle = {
   scene: THREE.Scene
@@ -31,19 +34,29 @@ export function initScene(container: HTMLElement): SceneHandle {
 
   addLights(scene)
 
-  const cube = createCubeShell()
+  const model = new CubeModel(CUBE_CONFIG.GRID_SIZE)
+  const cube = createCubeShell(model)
   cube.rotation.set(0, 0, 0)
   cube.quaternion.identity()
   scene.add(cube)
 
+  // Expose runtime objects for easier dev console inspection
+  try {
+    exposeDebug({ scene, model, cubeGroup: cube })
+  } catch (e) {
+    // debug is dev-only; fail silently in production builds
+  }
+
   const controls = new TrackballControls(camera, renderer.domElement)
   // TrackballControls: tune speeds and damping
-  controls.rotateSpeed = 1.2
+  // Increase rotateSpeed for more responsive rotation (was too slow)
+  controls.rotateSpeed = 10.0
   controls.zoomSpeed = 1.0
   // Disable panning by setting panSpeed to 0 (we want a locked pivot)
   controls.panSpeed = 0
-  controls.staticMoving = false
-  controls.dynamicDampingFactor = 0.2
+  // Use static moving for snappier input and keep modest damping
+  controls.staticMoving = true
+  controls.dynamicDampingFactor = 0.15
   // Keep the cube centered as the orbit target
   controls.target.set(0, 0, 0)
 

@@ -1,18 +1,26 @@
 import * as THREE from 'three'
 import { createCubie } from './cubie'
+import type { GridPos } from './cubie'
+import CubeModel from '../model/cube_model'
+import CUBE_CONFIG from '../config'
 
-export function createCubeShell(cubieSize = 0.95, gap = 0.05) {
+export function createCubeShell(model: CubeModel) {
   const parent = new THREE.Object3D()
-  const step = cubieSize + gap
 
-  for (let x = 0; x < 3; x++) {
-    for (let y = 0; y < 3; y++) {
-      for (let z = 0; z < 3; z++) {
-        const cubie = createCubie(cubieSize)
-        cubie.position.set((x - 1) * step, (y - 1) * step, (z - 1) * step)
-        parent.add(cubie)
-      }
-    }
+  const gridSize = CUBE_CONFIG.GRID_SIZE
+  const size = CUBE_CONFIG.CUBIE_SIZE
+  const gap = CUBE_CONFIG.GAP
+
+  const step = size + gap
+  const offset = (gridSize - 1) / 2
+
+  for (const [, data] of model.cubes) {
+    const { x, y, z } = data.gridPos
+
+    const pos: GridPos = { x, y, z }
+    const cubie = createCubie(size, pos)
+    cubie.position.set((x - offset) * step, (y - offset) * step, (z - offset) * step)
+    parent.add(cubie)
   }
 
   return parent
