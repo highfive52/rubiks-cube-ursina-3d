@@ -1,8 +1,8 @@
-name: Deploy Subfolder to Pages
+name: Build and Deploy Frontend to Pages
 
 on:
   push:
-    branches: ["web-app"] # Or your default branch
+    branches: ["web-app"]
 
 permissions:
   contents: read
@@ -20,18 +20,33 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # We tell the cache to look inside the frontend folder for package-lock.json
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      # --- FIXED: Use 'working-directory' to step into the frontend folder ---
+      - name: Install and Build Frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v5
 
+      # --- FIXED: Point the artifact path to frontend/dist ---
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Point this to the specific subfolder you want to publish
-          path: './frontend'
+          path: './frontend/dist' # Adjust to './frontend/build' if using React Scripts
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
