@@ -41,9 +41,17 @@ npm run dev
 ```bash
 cd frontend
 npm install    # if not already installed
-npm test
-# or run once without installing via npx
-npx vitest
+npm test                # runs `vitest` (use additional args after `--`)
+
+# Common variants:
+npx vitest run          # run tests once (CI-friendly)
+npx vitest --watch      # run in watch mode
+
+# Run a single test file or pattern:
+npx vitest src/engine/move_engine.spec.ts
+
+# Run tests matching a title or pattern:
+npx vitest -t "move engine"
 ```
 
 **Notes & Tips**
@@ -90,3 +98,4 @@ Mapping notes:
 - Debug / verification: `frontend/src/debug/verify.ts` and `frontend/src/config.ts` (?debug=1).
 
 This should help map Ursina concepts to the files you’ll work with when extending or debugging the frontend.
+

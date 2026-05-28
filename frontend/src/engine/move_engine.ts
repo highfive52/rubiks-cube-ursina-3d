@@ -32,7 +32,7 @@ export class MoveEngine {
 
     if (typeof moveName === 'string' && MoveEngine.NOTATION_MAP[moveName]) {
       const [axis, hint, direction] = MoveEngine.NOTATION_MAP[moveName]
-      const layer = this._layerFromHint(axis, hint)
+      const layer = this._layerFromHint(axis as 'x' | 'y' | 'z', hint)
       return { notation: moveName, axis: axis as 'x' | 'y' | 'z', layer, direction: direction as 1 | -1 }
     }
 
@@ -84,7 +84,7 @@ export class MoveEngine {
     }
 
     const new_cubes: Record<string, any> = {}
-    const oldMap = Object.fromEntries(Array.from(this.model.cubes.entries()))
+    const oldMap: Record<string, any> = Object.fromEntries(Array.from(this.model.cubes.entries()))
 
     for (const coord of affected) {
       const [x, y, z] = coord
@@ -122,7 +122,7 @@ export class MoveEngine {
     }
   }
 
-  _extremeLayer(axis: string, positive: boolean) {
+  _extremeLayer(axis: 'x' | 'y' | 'z', positive: boolean) {
     const keys = Array.from(this.model.cubes.keys()).map((k) => k.split(',').map((s) => parseInt(s, 10)) as [number, number, number])
     if (!keys.length) return 0
     const idx = { x: 0, y: 1, z: 2 }[axis]
@@ -130,7 +130,7 @@ export class MoveEngine {
     return positive ? values[values.length - 1] : values[0]
   }
 
-  _layerFromHint(axis: string, hint: number) {
+  _layerFromHint(axis: 'x' | 'y' | 'z', hint: number) {
     const keys = Array.from(this.model.cubes.keys()).map((k) => k.split(',').map((s) => parseInt(s, 10)) as [number, number, number])
     if (!keys.length) return hint
     const idx = { x: 0, y: 1, z: 2 }[axis]
