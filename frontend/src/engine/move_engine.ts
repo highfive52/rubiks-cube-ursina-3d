@@ -41,6 +41,18 @@ export class MoveEngine {
       try {
         const base = normalToMove(moveName as any, 1)
         const layer = this._extremeLayer(base.axis, base.layer > 0)
+
+        // { notation: 'F',   - the face to be turned
+        //    axis: 'z',      
+        //    layer: -1, 
+        //    direction: 1 
+        // }
+
+        // Face→axis mapping in this code:
+        //   R/L → x
+        //   U/D → y
+        //   F/B → z
+
         return { notation: base.notation, axis: base.axis, layer, direction: base.direction }
       } catch (e: any) {
         throw new InvalidMoveError(String(e))

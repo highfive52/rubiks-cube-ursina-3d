@@ -23,14 +23,14 @@ export class CubeController {
   }
 
   apply_rotate(normal_or_move: any, direction = 1, speed = 1, tracker?: any) {
+
+    // normal_or_move = [0,0,0], 
+    // direction = 1, 
+    // speed = 1, 
+    // tracker = undefined
+
     this._queue.push([normal_or_move, direction, speed, tracker])
     if (!this._is_processing) this._process_queue()
-  }
-
-  process_actions(actions: Array<[any, number, any]>) {
-    for (const [normal_or_move, direction, tracker] of actions) {
-      this.apply_rotate(normal_or_move, direction, 1, tracker)
-    }
   }
 
   private _process_queue() {
@@ -39,28 +39,21 @@ export class CubeController {
       return
     }
 
-    const [normal_or_move, direction, speed, tracker] = this._queue.shift()!
-    this._is_processing = true
+      const [normal_or_move, direction, speed, tracker] = this._queue.shift()!
+      this._is_processing = true
 
-    let change: any
-    try {
-      // Support intents shaped like { face: 'R', direction: 1 }
-      let payload = normal_or_move
-      if (payload && typeof payload === 'object' && 'face' in payload) {
-        const face = (payload as any).face
-        const faceMap: Record<string, any> = {
-          R: { x: 1 },
-          L: { x: -1 },
-          U: { y: 1 },
-          D: { y: -1 },
-          F: { z: -1 }, // Ursina convention: F = -Z
-          B: { z: 1 },
-        }
-        payload = faceMap[face] || payload
-      }
+      let change: any
+      try {
+        // We expect callers to pass normals (e.g. [1,0,0] or {x:1,y:0,z:0}).
+        // Use the queued `direction` argument (caller-provided) — payload
+        // no longer overrides it.
+        const payload: any = normal_or_move
+        const dir = typeof direction === 'number' ? direction : 1
 
-      change = this.engine.apply(payload, direction)
-      console.debug('[CubeController] engine.apply returned', { payload, change })
+        change = this.engine.apply(payload, dir)
+      try {
+        console.log('[CubeController] engine.apply returned', { payload, change })
+      } catch (e) {}
     } catch (e) {
       console.warn('[CubeController] engine.apply error:', e)
       this._on_action_complete(tracker)

@@ -71,11 +71,31 @@ export function axisTupleToFace(t: [number, number, number] | null): Face | null
 }
 
 // Map a camera axis (right or up) to the nearest cube face normal as an int tuple
-export function resolveScreenAxes(camera: THREE.Camera, object?: THREE.Object3D): { screenRightAxis: [number, number, number] | null; screenUpAxis: [number, number, number] | null; face: Face } {
+export function resolveScreenAxes(
+  camera: THREE.Camera,
+  object?: THREE.Object3D
+): {
+  screenRightAxis: [number, number, number] | null
+  screenUpAxis: [number, number, number] | null
+  face: Face
+  camForward?: [number, number, number]
+  camForwardWorld?: [number, number, number]
+  camRightWorld?: [number, number, number]
+  camUpWorld?: [number, number, number]
+  targetFaceWorld?: [number, number, number]
+  faceNormalsWorld?: Record<Face, [number, number, number]>
+} {
   const face = resolveFaceFromCamera(camera, object)
 
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize()
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize()
+  const rightWorld = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize()
+  const upWorld = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize()
+  const forwardWorld = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize()
+
+  // Copy world-space vectors into local `right`, `up`, `forward` then
+  // transform into object-local space if an object is provided.
+  const right = rightWorld.clone()
+  const up = upWorld.clone()
+  const forward = forwardWorld.clone()
 
   if (object) {
     const objQuat = new THREE.Quaternion()
@@ -83,6 +103,7 @@ export function resolveScreenAxes(camera: THREE.Camera, object?: THREE.Object3D)
     const inv = objQuat.clone().invert()
     right.applyQuaternion(inv)
     up.applyQuaternion(inv)
+    forward.applyQuaternion(inv)
   }
 
   // Use the Python-port screenAxesFromVectors for deterministic mapping
@@ -96,7 +117,49 @@ export function resolveScreenAxes(camera: THREE.Camera, object?: THREE.Object3D)
   ]
 
   const axes = screenAxesFromVectors(right, up, faceMappings)
-  return { screenRightAxis: axes.screenRightAxis, screenUpAxis: axes.screenUpAxis, face }
+
+  // Build world-space normals for all faces so callers can compute dot
+  // products against the exact same vectors used by click-path math.
+  const faces: Face[] = ['R', 'L', 'U', 'D', 'F', 'B']
+  const faceNormalsWorld: Record<Face, [number, number, number]> = {} as any
+  const objQuat = new THREE.Quaternion()
+  if (object) object.getWorldQuaternion(objQuat)
+
+  const toLocalVec = (f: Face) => {
+    switch (f) {
+      case 'R':
+        return new THREE.Vector3(1, 0, 0)
+      case 'L':
+        return new THREE.Vector3(-1, 0, 0)
+      case 'U':
+        return new THREE.Vector3(0, 1, 0)
+      case 'D':
+        return new THREE.Vector3(0, -1, 0)
+      case 'F':
+        return new THREE.Vector3(0, 0, -1)
+      case 'B':
+        return new THREE.Vector3(0, 0, 1)
+    }
+  }
+
+  for (const f of faces) {
+    const v = toLocalVec(f).clone()
+    if (object) v.applyQuaternion(objQuat)
+    v.normalize()
+    faceNormalsWorld[f] = [v.x, v.y, v.z]
+  }
+
+  return {
+    screenRightAxis: axes.screenRightAxis,
+    screenUpAxis: axes.screenUpAxis,
+    face,
+    camForward: [forward.x, forward.y, forward.z],
+    camForwardWorld: [forwardWorld.x, forwardWorld.y, forwardWorld.z],
+    camRightWorld: [rightWorld.x, rightWorld.y, rightWorld.z],
+    camUpWorld: [upWorld.x, upWorld.y, upWorld.z],
+    targetFaceWorld: faceNormalsWorld[face],
+    faceNormalsWorld,
+  }
 }
 
 // Port of Python select_face: choose face normal that best matches camera forward

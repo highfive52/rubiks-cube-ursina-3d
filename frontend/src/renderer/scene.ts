@@ -3,7 +3,7 @@ import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls
 import { createCamera, resizeCamera } from './camera'
 import { addLights } from './lighting'
 import { createCubeShell, findMeshByGridPos } from './cube_shell'
-import { computeFaceContext, axisTupleToFace } from '../input/camera_face_resolver'
+import { axisTupleToFace, resolveScreenAxes } from '../input/camera_face_resolver'
 import { FACE_NORMALS_MAP, FACE_LETTER_TO_TUPLE } from '../input/face_mappings'
 import CameraTracker from '../input/camera_tracker'
 import InputController from '../input/input_controller'
@@ -18,7 +18,10 @@ import { DEBUG } from '../config'
 
 // Suppress verbose debug output unless DEBUG flag enabled. Toggle by
 // starting the dev server with `http://localhost:5173/?debug=1`.
-if (!DEBUG) console.debug = () => {}
+if (!DEBUG) {
+  console.debug = () => {}
+  console.log = () => {}
+}
 
 type SceneHandle = {
   scene: THREE.Scene
@@ -113,20 +116,33 @@ export function initScene(container: HTMLElement): SceneHandle {
     controls.update()
     // Update camera face HUD
     try {
-      const faceCtx = computeFaceContext(camera, cube)
-      // Map face letter -> tuple -> friendly name
-      const letter = faceCtx.face
+      // Use the screen-axes resolver which maps camera right/up to nearest
+      // cube face normals (discrete tuples). This avoids transient gaps
+      // when rounding raw vectors during rotation.
+      const axesRes = resolveScreenAxes(camera, cube)
+      const letter = axesRes.face
       const tuple = FACE_LETTER_TO_TUPLE[letter]
       const key = tuple ? `${tuple[0]},${tuple[1]},${tuple[2]}` : null
       const info = key ? FACE_NORMALS_MAP[key] : null
       const tupleText = tuple ? ` [${tuple[0]},${tuple[1]},${tuple[2]}]` : ''
-      let text = info ? `Face: ${info.name}${tupleText}` : `Face: ${faceCtx.face}${tupleText}`
+
+      const rightTuple = axesRes.screenRightAxis
+      const upTuple = axesRes.screenUpAxis
+      const rightKey = rightTuple ? `${rightTuple[0]},${rightTuple[1]},${rightTuple[2]}` : null
+      const upKey = upTuple ? `${upTuple[0]},${upTuple[1]},${upTuple[2]}` : null
+      const rightInfo = rightKey ? FACE_NORMALS_MAP[rightKey] : null
+      const upInfo = upKey ? FACE_NORMALS_MAP[upKey] : null
+
+      let text = info ? `Face: ${info.side} (${info.color_name})${tupleText}` : `Face: ${letter}${tupleText}`
+      const rightText = rightInfo ? `${rightInfo.side} (${rightInfo.color_name}) [${rightTuple![0]},${rightTuple![1]},${rightTuple![2]}]` : `? ${rightTuple ? `[${rightTuple[0]},${rightTuple[1]},${rightTuple[2]}]` : ''}`
+      const upText = upInfo ? `${upInfo.side} (${upInfo.color_name}) [${upTuple![0]},${upTuple![1]},${upTuple![2]}]` : `? ${upTuple ? `[${upTuple[0]},${upTuple[1]},${upTuple[2]}]` : ''}`
+      text += `\nRight: ${rightText} | Up: ${upText}`
       // Append hovered face (mouse-over) info when available
       if (hoveredFace) {
         const htuple = FACE_LETTER_TO_TUPLE[hoveredFace]
         const hkey = htuple ? `${htuple[0]},${htuple[1]},${htuple[2]}` : null
         const hinfo = hkey ? FACE_NORMALS_MAP[hkey] : null
-        const htext = hinfo ? `${hinfo.name}` : `${hoveredFace}`
+        const htext = hinfo ? `${hinfo.side} (${hinfo.color_name})` : `${hoveredFace}`
         const htupleText = htuple ? ` [${htuple[0]},${htuple[1]},${htuple[2]}]` : ''
         text += ` | Hover: ${htext}${htupleText}`
         faceHud.style.background = 'rgba(0,0,0,0.6)'
@@ -182,19 +198,22 @@ export function initScene(container: HTMLElement): SceneHandle {
           try {
             // Use debug verifier (throws in DEBUG) to detect mismatches
             // `after` is a Map snapshot produced by the controller.
-            try {
-              // lazy import to avoid circulars; run verifier asynchronously
-              import('../debug/verify')
-                .then((m) => {
-                  try {
-                    if (after && (after as any) instanceof Map) m.verifyModelMeshSyncFromSnapshot(after as Map<string, any>, cube)
-                  } catch (err) {
-                    console.warn('resync-verify failed', err)
-                  }
-                })
-                .catch((err) => console.warn('resync-verify import failed', err))
-            } catch (e) {
-              console.warn('resync-verify failed', e)
+            // Run verification only in DEBUG mode to avoid noisy errors during
+            // normal usage. The verifier throws in DEBUG to aid development.
+            if (DEBUG) {
+              try {
+                import('../debug/verify')
+                  .then((m) => {
+                    try {
+                      if (after && (after as any) instanceof Map) m.verifyModelMeshSyncFromSnapshot(after as Map<string, any>, cube)
+                    } catch (err) {
+                      console.warn('resync-verify failed', err)
+                    }
+                  })
+                  .catch((err) => console.warn('resync-verify import failed', err))
+              } catch (e) {
+                console.warn('resync-verify failed', e)
+              }
             }
           } catch (e) {
             console.warn('resync-verify failed', e)
@@ -212,16 +231,37 @@ export function initScene(container: HTMLElement): SceneHandle {
     })
   })
 
-  const inputController = new InputController()
+
+  // ############################################################
   // Use CameraTracker to compute camera-relative axes
   const tracker = new CameraTracker(camera, cube)
+
+  const inputController = new InputController()
+  
   inputController.setScreenAxesResolver(() => tracker.getScreenAxes())
-  inputController.start((intent) => {
-    console.debug('[Scene] intent received', intent)
+  inputController.start((payload, direction) => {
+    console.debug('[Scene] intent received', { payload, direction })
     // forward to controller which handles engine/model/renderer sequence
-    controller.apply_rotate({ face: intent.face, direction: intent.direction }, intent.direction)
+    controller.apply_rotate(payload, direction)
   })
 
+  // Simple debug key handler: match the Ursina app toggle keys.
+  // `1` toggles the face HUD visibility (telemetry).
+  let faceHudVisible = true
+  const debugKeyHandler = (ev: KeyboardEvent) => {
+    try {
+      if (ev.key === '1') {
+        faceHudVisible = !faceHudVisible
+        faceHud.style.display = faceHudVisible ? 'block' : 'none'
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+  window.addEventListener('keydown', debugKeyHandler)
+
+
+  // ##########################################################
   // --- Mouse hover + click face interaction (Ursina-like) ---
   const raycaster = new THREE.Raycaster()
   const mouse = new THREE.Vector2()
@@ -231,6 +271,8 @@ export function initScene(container: HTMLElement): SceneHandle {
   void hoveredTuple
   let highlightedMeshes: THREE.Object3D[] = []
   let lastHoveredNormalWorld: THREE.Vector3 | null = null
+  // reference to avoid unused-local TypeScript error when only set elsewhere
+  void lastHoveredNormalWorld
 
   function clearHighlights() {
     for (const m of highlightedMeshes) {
@@ -333,41 +375,19 @@ export function initScene(container: HTMLElement): SceneHandle {
       if (hoveredFace) {
         // Base direction (1 for left, -1 for right) then adjust by
         // camera-facing comparison to ensure positive means clockwise.
-        let dir: 1 | -1 = baseDir
-        try {
-          if (tracker) {
-                  try {
-                if (lastHoveredNormalWorld) {
-                  try {
-                    const camDir = new THREE.Vector3()
-                    camera.getWorldDirection(camDir)
-                    const dot = camDir.dot(lastHoveredNormalWorld)
-                    const signCorrection = dot > 0 ? -1 : 1
-                    console.debug('[Scene] click sign debug', { hoveredFace, camDir: camDir.toArray(), hoveredNormalWorld: lastHoveredNormalWorld.toArray(), dot, signCorrection })
-                    dir = (dir as number) * signCorrection as 1 | -1
-                    console.debug('[Scene] final click dir', { dir })
-                  } catch (e) {
-                    // fallback: keep dir unchanged
-                  }
-                }
-                // Special-case: Front (Green) is expected to behave reversed
-                // relative to the default sign computation — invert its dir
-                // here only for `F` so other faces' behavior remains unchanged.
-                if (hoveredFace === 'F' || hoveredFace === 'L' || hoveredFace === 'D') {
-                  // Invert click direction for Front, Left, and Down per user request
-                  dir = (dir as number) * -1 as 1 | -1
-                  console.debug('[Scene] special-case flip for F/L/D', { dir, face: hoveredFace })
-                }
-              } catch (e) {
-                // fallback: keep dir unchanged
-              }
-            }
-        } catch (e) {
-          // fallback: keep dir = 1
-        }
-        // Use InputController.enqueueIntent so collider input uses the
-        // same pathway as keyboard (InputController -> Controller)
-        inputController.enqueueIntent({ face: hoveredFace as any, direction: dir })
+          // Use the provided base direction but invert for Front/Left/Down
+          // on left-click to preserve the previously expected mouse behavior.
+          let dir: 1 | -1 = baseDir
+          // Invert for Front/Left/Down so these faces rotate in the
+          // opposite direction on both left and right clicks (preserve
+          // expected behavior across input methods).
+          if (hoveredFace === 'F' || hoveredFace === 'L' || hoveredFace === 'D') {
+            dir = (dir as number) * -1 as 1 | -1
+            console.debug('[Scene] special-case flip for F/L/D', { dir, face: hoveredFace })
+          }
+          // Use InputController.enqueueIntent so collider input uses the
+          // same pathway as keyboard (InputController -> Controller)
+          inputController.enqueueIntent({ face: hoveredFace as any, direction: dir })
         clearHighlights()
       }
     } catch (e) {
@@ -429,6 +449,10 @@ export function initScene(container: HTMLElement): SceneHandle {
       if (container.contains(faceHud)) {
         container.removeChild(faceHud)
       }
+
+      try {
+        window.removeEventListener('keydown', debugKeyHandler)
+      } catch (e) {}
 
       // Optional: If you aren't reusing the scene elsewhere, 
       // you should traverse the scene here and dispose of cube geometries/materials.
